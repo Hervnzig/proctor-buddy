@@ -1,0 +1,67 @@
+body {
+  margin: 0;
+  font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  background: #020617;
+  color: #e2e8f0;
+}
+
+main {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+video {
+  width: 100%;
+  max-height: 420px;
+  border-radius: 12px;
+  border: 1px solid #334155;
+  margin-bottom: 14px;
+  background: #000;
+}
+
+section {
+  border: 1px solid #334155;
+  border-radius: 12px;
+  padding: 14px;
+  margin-bottom: 14px;
+  background: #0f172a;
+}
+
+button {
+  border: none;
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-right: 6px;
+  margin-bottom: 6px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.buttons button {
+  background: #2563eb;
+  color: #dbeafe;
+}
+
+#submitPrecheck {
+  background: #16a34a;
+  color: #052e16;
+}
+
+#endSession {
+  background: #ef4444;
+  color: #fee2e2;
+}
+
+#captured {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(160px, 1fr));
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+#captured img {
+  width: 100%;
+  border: 1px solid #334155;
+  border-radius: 8px;
+}

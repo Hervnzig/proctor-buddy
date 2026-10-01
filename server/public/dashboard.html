@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Quiz Proctor Dashboard</title>
+    <style>
+      body {
+        margin: 0;
+        font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+        background: #0f172a;
+        color: #e2e8f0;
+      }
+      .layout {
+        display: grid;
+        grid-template-columns: 340px 1fr;
+        min-height: 100vh;
+      }
+      .sidebar {
+        border-right: 1px solid #1e293b;
+        padding: 16px;
+      }
+      .main {
+        padding: 20px;
+      }
+      .card {
+        background: #111827;
+        border: 1px solid #334155;
+        border-radius: 12px;
+        padding: 12px;
+        margin-bottom: 10px;
+        cursor: pointer;
+      }
+      .card:hover {
+        border-color: #60a5fa;
+      }
+      .pill {
+        display: inline-block;
+        font-size: 12px;
+        border-radius: 999px;
+        padding: 3px 8px;
+        margin-left: 8px;
+      }
+      .approved { background: #065f46; }
+      .pending { background: #7c2d12; }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(220px, 1fr));
+        gap: 10px;
+      }
+      img {
+        width: 100%;
+        border-radius: 8px;
+        border: 1px solid #334155;
+      }
+      button {
+        border: none;
+        border-radius: 10px;
+        padding: 10px 14px;
+        margin-right: 8px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .ok { background: #10b981; color: #022c22; }
+      .warn { background: #f59e0b; color: #1f1300; }
+      .events {
+        margin-top: 16px;
+        max-height: 320px;
+        overflow: auto;
+        background: #020617;
+        border-radius: 10px;
+        border: 1px solid #334155;
+        padding: 10px;
+      }
+      .event {
+        border-bottom: 1px solid #1e293b;
+        padding: 8px 0;
+        font-size: 13px;
+      }
+      .muted { color: #94a3b8; }
+    </style>
+  </head>
+  <body>
+    <div class="layout">
+      <aside class="sidebar">
+        <h2>Sessions</h2>
+        <div id="sessions"></div>
+      </aside>
+      <main class="main">
+        <h2 id="title">Select a session</h2>
+        <p class="muted" id="meta"></p>
+        <div>
+          <button class="ok" id="approveBtn">Approve</button>
+          <button class="warn" id="revokeBtn">Revoke</button>
+        </div>
+        <h3>Pre-check background scan</h3>
+        <div class="grid" id="shots"></div>
+        <h3>Live events</h3>
+        <div class="events" id="events"></div>
+      </main>
+    </div>
+
+    <script>
+      const API_BASE = `${location.origin}/api`;
+      const sessionsEl = document.getElementById("sessions");
+      const titleEl = document.getElementById("title");
+      const metaEl = document.getElementById("meta");
+      const shotsEl = document.getElementById("shots");
+      const eventsEl = document.getElementById("events");
+      const approveBtn = document.getElementById("approveBtn");
+      const revokeBtn = document.getElementById("revokeBtn");
+
+      let selectedSessionId = null;
+
+      async function fetchSessions() {
+        const response = await fetch(`${API_BASE}/sessions`);
+        const sessions = await response.json();
+        renderSessions(sessions);
+        if (!selectedSessionId && sessions.length) {
+          selectedSessionId = sessions[0].id;
+          await loadSession(selectedSessionId);
+        }
+      }
+
+      function statusClass(status) {
+        return status === "approved" ? "approved" : "pending";
+      }
+
+      function renderSessions(sessions) {
+        sessionsEl.innerHTML = sessions
+          .map((session) => {
+            return `
+              <div class="card" data-id="${session.id}">
+                <div><strong>${session.studentId}</strong></div>
+                <div class="muted">Quiz: ${session.quizId}</div>
+                <div>
+                  <span class="pill ${statusClass(session.status)}">${session.status}</span>
+                </div>
+              </div>
+            `;
+          })
+          .join("");
+
+        document.querySelectorAll(".card").forEach((element) => {
+          element.addEventListener("click", async () => {
+            selectedSessionId = element.getAttribute("data-id");
+            await loadSession(selectedSessionId);
+          });
+        });
+      }
+
+      function renderSession(session) {
+        titleEl.textContent = `Student ${session.studentId} (${session.status})`;
+        metaEl.textContent = `Quiz ${session.quizId} • Session ${session.id} • Last update ${new Date(session.updatedAt).toLocaleString()}`;
+        shotsEl.innerHTML = session.precheckShots
+          .map((shot) => {
+            return `<div><p>${shot.label}</p><img src="${shot.imageDataUrl}" alt="${shot.label}"/></div>`;
+          })
+          .join("");
+
+        eventsEl.innerHTML = session.events
+          .slice()
+          .reverse()
+          .map((event) => {
+            return `<div class="event"><strong>${event.type}</strong> <span class="muted">${new Date(event.timestamp).toLocaleTimeString()}</span><pre>${JSON.stringify(event.payload, null, 2)}</pre></div>`;
+          })
+          .join("");
+      }
+
+      async function loadSession(sessionId) {
+        const response = await fetch(`${API_BASE}/sessions/${sessionId}`);
+        const session = await response.json();
+        renderSession(session);
+      }
+
+      async function updateApproval(approved) {
+        if (!selectedSessionId) return;
+        await fetch(`${API_BASE}/sessions/${selectedSessionId}/approval`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ approved, reviewer: "dashboard-proctor" })
+        });
+        await loadSession(selectedSessionId);
+        await fetchSessions();
+      }
+
+      approveBtn.addEventListener("click", () => updateApproval(true));
+      revokeBtn.addEventListener("click", () => updateApproval(false));
+
+      fetchSessions();
+      setInterval(async () => {
+        await fetchSessions();
+        if (selectedSessionId) {
+          await loadSession(selectedSessionId);
+        }
+      }, 5000);
+    </script>
+  </body>
+</html>

@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Quiz Proctor Monitor",
+  "version": "0.1.0",
+  "description": "Student pre-check and in-browser assessment monitoring",
+  "permissions": ["storage", "tabs", "activeTab"],
+  "host_permissions": ["http://localhost:4310/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Quiz Proctor",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content-script.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

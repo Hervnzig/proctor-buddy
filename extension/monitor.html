@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Assessment Monitor</title>
+    <link rel="stylesheet" href="monitor.css" />
+  </head>
+  <body>
+    <main>
+      <h1>Assessment Monitor</h1>
+      <p id="sessionMeta"></p>
+      <video id="camera" autoplay playsinline muted></video>
+
+      <section>
+        <h2>Step 1: Background scan before approval</h2>
+        <p>Capture left, center, and right views of the room.</p>
+        <div class="buttons">
+          <button data-capture="left">Capture Left</button>
+          <button data-capture="center">Capture Center</button>
+          <button data-capture="right">Capture Right</button>
+        </div>
+        <div id="captured"></div>
+        <button id="submitPrecheck">Submit pre-check</button>
+      </section>
+
+      <section>
+        <h2>Step 2: Live monitoring</h2>
+        <p id="status">Waiting for pre-check submission.</p>
+      </section>
+
+      <button id="endSession">End session</button>
+      <canvas id="frameCanvas" width="640" height="360" hidden></canvas>
+    </main>
+    <script src="monitor.js"></script>
+  </body>
+</html>
