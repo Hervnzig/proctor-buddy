@@ -15,131 +15,43 @@ npm run dev
 - Lecturer workspace: `http://localhost:5173/`
 - API health check: `http://localhost:4310/health`
 
-The local MVP stores sessions in memory. Restarting the API clears the data. The React development server proxies API and WebSocket signaling requests to the backend.
+For camera and screen capture in local development, open the student/lecturer app using **`http://localhost:5173/`**. Do not use the Vite Network URL or a LAN address such as `http://192.168.x.x:5173/`; browsers generally disable media APIs on those non-HTTPS origins. On another device, configure HTTPS before testing camera and screen sharing.
+
+The local MVP stores sessions in memory. Restarting the API clears the data. Vite proxies API and WebSocket signaling requests to the backend.
 
 ## Try the flow
 
 1. Open the lecturer workspace and choose **New assessment**.
-2. Create a session and use **Copy invite link** in its detail panel.
-3. Open the invite link in another browser window (or a private window) to act as a student.
-4. Enter a name and student number and acknowledge the disclosure.
-5. Explicitly enable webcam and screen sharing through the browser prompts.
-6. Capture left, center, and right workspace images, then submit for review.
-7. Return to the lecturer workspace, select that student, inspect the submitted images, and approve.
-8. The approved student page begins WebRTC streaming to the selected student's dashboard media tiles; session events appear in **Activity log**.
+2. Create a session and click **Copy invite link**.
+3. Open that link in another browser window to act as a student.
+4. Enter a name and student number and acknowledge the disclosure of shared screen/webcam viewing, local face-presence/count checks, background images, and event logging.
+5. Enable the webcam and choose **Entire Screen** in the browser picker. Window and browser-tab shares are rejected after selection.
+6. Capture left, center, and right workspace images and submit them for lecturer review.
+7. The lecturer reviews the submitted images and approves the student.
+8. Face-presence/count checks continue locally from webcam activation until the session ends. After approval, the lecturer can view the student-selected screen and webcam streams; events are shown in **Activity log**.
 
-## What the MVP records
+## What is recorded
 
 - Student join and consent timestamp.
-- Browser camera/screen permission state and background-check images.
+- Camera/screen permission state and submitted background-check images.
 - Timestamped setup, approval, sharing-stop, tab-visibility, and heartbeat events.
-- A screen-share evidence frame when the student stops sharing (when the browser still exposes a final frame).
-- Live webcam and screen feeds after lecturer approval, using peer-to-peer WebRTC for local testing.
+- State changes from continuous, on-device face-presence/count analysis, such as no face detected across repeated checks or multiple faces detected. Frames for that analysis are processed locally and are not sent to the API by the detector.
+- A screen-share evidence frame when sharing stops, if the browser exposes a final frame.
+- Lecturer actions and downloadable JSON reports.
 
-## Important limitations before real use
+## Important limitations
 
-- This is a local prototype, not a secure production system: there is no authentication, authorization, persistent database, encryption-at-rest configuration, retention/deletion tooling, or audit-grade event immutability.
-- Screen and camera capture require student action and browser permission. The lecturer can receive video only while the student page is open and sharing is active.
-- WebRTC signaling is included for local flow validation. Production multi-student streaming should use an authenticated SFU service and TURN servers; peer-to-peer networking may fail across restrictive networks.
-- Browser screen-sharing support and HTTPS requirements vary. `getDisplayMedia()` works on localhost for development; deployed use requires HTTPS.
-- The background images and monitoring events are sensitive student data. Do not use with real students until consent, accessibility accommodations, school policy, legal review, restricted access, and retention/deletion requirements are addressed.
-- The MVP does not infer cheating, monitor eye movements, listen to speech, or automatically cancel assessments. Human review is required.
+- This is a local prototype, not a secure production system. It has no authentication/authorization, persistent database, retention/deletion controls, or audit-grade event immutability.
+- Students must explicitly grant camera and screen permissions. If the page says `navigator.mediaDevices` is unavailable, check that the page is open at `http://localhost:5173/` or an HTTPS deployment, then reload. If a permission was denied, allow it in browser site settings. The lecturer receives live media only while the student page is open and sharing is active.
+- The screen-share request asks for `displaySurface: "monitor"` and accepts only a browser-reported `monitor` surface. Browsers that don't expose the surface are rejected. Browser pickers vary; test the exact target browser/version. Deployed use requires HTTPS.
+- Face detection uses MediaPipe model/WASM assets from public CDNs. Camera frames used by face detection remain in the browser; the separate live webcam feed is shared with the lecturer over WebRTC. If assets fail to load, the app reports detector unavailability.
+- Detection may be inaccurate due to lighting, camera angle, disability, and other factors. Events are review prompts, not findings. The MVP does not identify people, estimate gaze/emotion, infer suspicious intent, track objects such as phones, or automatically cancel a quiz.
+- WebRTC signaling is for local testing. Production deployments need authenticated signaling, an SFU, and TURN servers.
+- Student images, streams, and logs are sensitive. Add school/legal review, accessibility and consent workflows, access controls, and retention/deletion policies before real student use.
 
 ## Checks
 
 ```bash
 npm test
 npm run build
-```# Quiz Proctoring MVP (Extension + Dashboard)
-
-This project is a **starter MVP** for monitored online assessments, with a browser extension for students and a dashboard for proctors.
-
-## What this MVP does
-
-- Creates a monitored quiz session from a browser extension.
-- Captures **3 background scan images** (left/center/right) before approval.
-- Lets a proctor approve/revoke each session from a dashboard.
-- Monitors quiz/monitor tab behavior (visibility, focus/blur, copy/paste attempts).
-- Sends periodic monitoring heartbeats and optional face-count anomalies.
-
-## Project structure
-
 ```
-personal-project/
-├─ extension/
-│  ├─ manifest.json
-│  ├─ popup.html / popup.js / popup.css
-│  ├─ monitor.html / monitor.js / monitor.css
-│  ├─ background.js
-│  └─ content-script.js
-├─ server/
-│  ├─ src/index.js
-│  ├─ src/data/store.js
-│  ├─ public/dashboard.html
-│  └─ test/smoke.test.js
-└─ package.json
-```
-
-## Run locally
-
-1. Install dependencies:
-
-```bash
-cd /Users/apple/Desktop/frontend_web_dev/personal-project/server
-npm install
-```
-
-2. Start backend:
-
-```bash
-cd /Users/apple/Desktop/frontend_web_dev/personal-project
-npm run dev
-```
-
-3. Open proctor dashboard:
-
-- `http://localhost:4310/dashboard`
-
-4. Load extension in Chrome/Edge:
-
-- Open `chrome://extensions`
-- Enable **Developer mode**
-- Click **Load unpacked**
-- Select `/Users/apple/Desktop/frontend_web_dev/personal-project/extension`
-
-## Student flow
-
-1. Open quiz tab.
-2. Click extension icon.
-3. Enter `Student ID` and `Quiz ID`.
-4. Start session.
-5. In monitor tab, capture left/center/right background views.
-6. Submit pre-check and wait for proctor approval.
-7. Continue quiz while monitoring events are recorded.
-
-## Proctor flow
-
-1. Open dashboard.
-2. Select student session.
-3. Review background scan images.
-4. Click **Approve** or **Revoke**.
-5. Watch incoming live events.
-
-## Test
-
-```bash
-cd /Users/apple/Desktop/frontend_web_dev/personal-project/server
-npm test
-```
-
-## Privacy and policy notes (important)
-
-Before using with real students, add:
-
-- Written consent and transparent disclosure.
-- Data minimization and retention policy.
-- Role-based access control and audit logs.
-- Encryption in transit/at rest.
-- Regional legal compliance (FERPA/GDPR/local laws).
-
-This MVP stores data in memory only (for demo/testing), and is not production-ready.

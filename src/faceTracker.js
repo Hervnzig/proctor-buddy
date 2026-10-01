@@ -24,13 +24,18 @@ export async function startFaceTracking(video, onChange, onStatus) {
   let absenceReported = false;
   let multipleReported = false;
   let lastProcessedAt = 0;
+  let previousFaceCenter = null;
+  let movingFrames = 0;
+  let stillFrames = 0;
+  let movementReported = false;
   const minimumFrames = 3;
+  const movementThreshold = 0.065;
   onStatus("active");
 
   const scan = (timestamp) => {
     if (!running) return;
     frameId = requestAnimationFrame(scan);
-    if (timestamp - lastProcessedAt < 700 || !video.videoWidth || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return;
+    if (timestamp - lastProcessedAt < 500 || !video.videoWidth || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return;
     lastProcessedAt = timestamp;
 
     try {
@@ -38,6 +43,31 @@ export async function startFaceTracking(video, onChange, onStatus) {
       const count = result.detections.length;
       absentFrames = count === 0 ? absentFrames + 1 : 0;
       multipleFrames = count > 1 ? multipleFrames + 1 : 0;
+
+      if (count === 1) {
+        const box = result.detections[0].boundingBox;
+        const center = {
+          x: (box.originX + box.width / 2) / video.videoWidth,
+          y: (box.originY + box.height / 2) / video.videoHeight
+        };
+        if (previousFaceCenter) {
+          const distance = Math.hypot(center.x - previousFaceCenter.x, center.y - previousFaceCenter.y);
+          movingFrames = distance >= movementThreshold ? movingFrames + 1 : 0;
+          stillFrames = distance < movementThreshold ? stillFrames + 1 : 0;
+          if (movingFrames >= 2 && !movementReported) {
+            movementReported = true;
+            onChange({ kind: "face-position-change", count, stable: true });
+          } else if (stillFrames >= minimumFrames && movementReported) {
+            movementReported = false;
+            onChange({ kind: "face-position-settled", count, stable: true });
+          }
+        }
+        previousFaceCenter = center;
+      } else {
+        previousFaceCenter = null;
+        movingFrames = 0;
+        stillFrames = 0;
+      }
 
       if (count !== previousCount) {
         onChange({ kind: "face-count", count, stable: false });
