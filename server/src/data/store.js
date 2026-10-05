@@ -1,6 +1,8 @@
 import { v4 as uuidv4 } from "uuid";
 
 const sessions = new Map();
+const MAX_EVENTS_PER_STUDENT = 300;
+const MAX_EVENTS_WITH_IMAGES_PER_STUDENT = 40;
 
 export function createSession({ title, lecturerName }) {
   const now = new Date().toISOString();
@@ -18,7 +20,27 @@ export function createSession({ title, lecturerName }) {
 }
 
 export function listSessions() {
-  return [...sessions.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  return [...sessions.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map((session) => ({
+    ...session,
+    students: session.students.map((student) => {
+      const { precheckShots, ...studentSummary } = student;
+      return {
+        ...studentSummary,
+        precheckShotCount: precheckShots.length,
+        events: student.events.map((event) => ({
+          ...event,
+          payload: Object.fromEntries(Object.entries(event.payload || {}).filter(([key]) => key !== "imageDataUrl"))
+        }))
+      };
+    })
+  }));
+}
+
+export function getStudentStatus(sessionId, studentId) {
+  const session = sessions.get(sessionId);
+  const student = session?.students.find((item) => item.id === studentId);
+  if (!session || !student) return null;
+  return { sessionStatus: session.status, studentStatus: student.status };
 }
 
 export function getSession(id) {
@@ -88,7 +110,16 @@ export function addEvent(sessionId, studentId, event) {
     timestamp: event.timestamp || new Date().toISOString()
   };
   if (student) {
+    if (record.payload.imageDataUrl) {
+      const imageEvents = student.events.filter((item) => item.payload?.imageDataUrl);
+      if (imageEvents.length >= MAX_EVENTS_WITH_IMAGES_PER_STUDENT) {
+        const oldestImageEvent = imageEvents[0];
+        oldestImageEvent.payload = { ...oldestImageEvent.payload };
+        delete oldestImageEvent.payload.imageDataUrl;
+      }
+    }
     student.events.push(record);
+    if (student.events.length > MAX_EVENTS_PER_STUDENT) student.events.splice(0, student.events.length - MAX_EVENTS_PER_STUDENT);
   } else if (studentId) {
     return null;
   }

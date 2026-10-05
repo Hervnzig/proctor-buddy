@@ -24,18 +24,22 @@ export async function startFaceTracking(video, onChange, onStatus) {
   let absenceReported = false;
   let multipleReported = false;
   let lastProcessedAt = 0;
+  let lastMovementCueAt = -Infinity;
   let previousFaceCenter = null;
   let movingFrames = 0;
   let stillFrames = 0;
   let movementReported = false;
   const minimumFrames = 3;
   const movementThreshold = 0.065;
+  const movementCueCooldown = 10000;
   onStatus("active");
 
   const scan = (timestamp) => {
     if (!running) return;
     frameId = requestAnimationFrame(scan);
-    if (timestamp - lastProcessedAt < 500 || !video.videoWidth || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return;
+    if (document.visibilityState === "hidden" || timestamp - lastProcessedAt < 1000 || !video.videoWidth || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return;
+    if (video.currentTime === scan.lastVideoTime) return;
+    scan.lastVideoTime = video.currentTime;
     lastProcessedAt = timestamp;
 
     try {
@@ -54,8 +58,9 @@ export async function startFaceTracking(video, onChange, onStatus) {
           const distance = Math.hypot(center.x - previousFaceCenter.x, center.y - previousFaceCenter.y);
           movingFrames = distance >= movementThreshold ? movingFrames + 1 : 0;
           stillFrames = distance < movementThreshold ? stillFrames + 1 : 0;
-          if (movingFrames >= 2 && !movementReported) {
+          if (movingFrames >= 2 && !movementReported && timestamp - lastMovementCueAt >= movementCueCooldown) {
             movementReported = true;
+            lastMovementCueAt = timestamp;
             onChange({ kind: "face-position-change", count, stable: true });
           } else if (stillFrames >= minimumFrames && movementReported) {
             movementReported = false;

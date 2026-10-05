@@ -21,6 +21,28 @@ const api = async (path, options = {}) => {
   return response.status === 204 ? null : response.json();
 };
 
+function mergeSessionSummary(summary, previous) {
+  if (!summary) return null;
+  const previousStudents = new Map((previous?.students || []).map((student) => [student.id, student]));
+  return {
+    ...summary,
+    students: summary.students.map((student) => {
+      const previousStudent = previousStudents.get(student.id);
+      const previousEvents = new Map((previousStudent?.events || []).map((event) => [event.id, event]));
+      return {
+        ...student,
+        precheckShots: previousStudent?.precheckShots || [],
+        events: student.events.map((event) => {
+          const oldEvent = previousEvents.get(event.id);
+          return oldEvent?.payload?.imageDataUrl
+            ? { ...event, payload: { ...event.payload, imageDataUrl: oldEvent.payload.imageDataUrl } }
+            : event;
+        })
+      };
+    })
+  };
+}
+
 let preserveMediaDuringHotUpdateUntil = 0;
 if (import.meta.hot) {
   import.meta.hot.on("vite:beforeUpdate", () => { preserveMediaDuringHotUpdateUntil = Date.now() + 5000; });
@@ -40,20 +62,26 @@ function LecturerDashboard() {
   const [sessions, setSessions] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [session, setSession] = useState(null);
+  const sessionRef = useRef(null);
   const [showCreate, setShowCreate] = useState(false);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState("");
   const [copyFailed, setCopyFailed] = useState(false);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (includeDetails = false) => {
     try {
       const data = await api("/sessions");
       setSessions(data);
       const id = selectedId || data[0]?.id;
       if (id) {
         setSelectedId(id);
-        setSession(data.find((item) => item.id === id) || await api(`/sessions/${id}`));
+        const summary = data.find((item) => item.id === id);
+        const nextSession = includeDetails
+          ? await api(`/sessions/${id}`)
+          : mergeSessionSummary(summary, sessionRef.current);
+        sessionRef.current = nextSession;
+        setSession(nextSession);
       } else setSession(null);
     } catch (error) {
       setToast(error.message);
@@ -62,7 +90,7 @@ function LecturerDashboard() {
     }
   }, [selectedId]);
 
-  useEffect(() => { refresh(); const timer = setInterval(refresh, 3000); return () => clearInterval(timer); }, [refresh]);
+  useEffect(() => { refresh(true); const timer = setInterval(() => refresh(false), 3000); return () => clearInterval(timer); }, [refresh]);
   useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(""), 3200); return () => clearTimeout(timer); }, [toast]);
 
   const filtered = sessions.filter((item) => `${item.title} ${item.lecturerName}`.toLowerCase().includes(search.toLowerCase()));
@@ -74,16 +102,28 @@ function LecturerDashboard() {
     const created = await api("/sessions", { method: "POST", body: JSON.stringify(data) });
     setSessions((old) => [created, ...old]);
     setSelectedId(created.id);
+    sessionRef.current = created;
     setSession(created);
     setShowCreate(false);
     setToast("Assessment session created");
+  }
+
+  async function selectSession(sessionId) {
+    setSelectedId(sessionId);
+    try {
+      const details = await api(`/sessions/${sessionId}`);
+      sessionRef.current = details;
+      setSession(details);
+    } catch (error) {
+      setToast(error.message);
+    }
   }
 
   async function approveStudent(studentId, approved) {
     await api(`/sessions/${session.id}/students/${studentId}/approval`, {
       method: "PATCH", body: JSON.stringify({ approved, reviewer: "Lecturer" })
     });
-    await refresh();
+    await refresh(true);
     setToast(approved ? "Student approved to begin" : "Review decision saved");
   }
 
@@ -108,7 +148,7 @@ function LecturerDashboard() {
   async function endAssessment() {
     if (!session || !window.confirm("End this assessment? Students will no longer be able to join.")) return;
     await api(`/sessions/${session.id}`, { method: "PATCH", body: JSON.stringify({ status: "ended" }) });
-    await refresh();
+    await refresh(true);
     setToast("Assessment ended. Reports remain available.");
   }
 
@@ -122,12 +162,12 @@ function LecturerDashboard() {
         <button className="nav-item" onClick={() => setToast("Reports are available within each session.")}><FileText size={17} /> Reports</button>
         <div className="sidebar-bottom">
           <div className="help-card"><div className="help-icon"><CircleHelp size={17} /></div><strong>Need a hand?</strong><span>Visit the proctor guide</span><ArrowUpRight size={15} /></div>
-          <div className="profile"><div className="avatar lecturer-avatar">JM</div><div className="profile-copy"><strong>Jordan Miller</strong><span>Lecturer account</span></div><MoreHorizontal size={18} /></div>
+          <div className="profile"><div className="avatar lecturer-avatar">LC</div><div className="profile-copy"><strong>Learning Coach</strong><span>Lecturer account</span></div><MoreHorizontal size={18} /></div>
         </div>
       </aside>
 
       <main className="main-area">
-        <header className="topbar"><div className="breadcrumbs"><span>Workspace</span><span className="crumb-slash">/</span><strong>Overview</strong></div><div className="topbar-actions"><div className="secure-pill"><span className="secure-dot" /> Secure workspace</div><button className="icon-button" aria-label="Notifications" onClick={() => setToast("You’re all caught up.")}><Bell size={18} /><i /></button><div className="avatar lecturer-avatar small">JM</div></div></header>
+        <header className="topbar"><div className="breadcrumbs"><span>Workspace</span><span className="crumb-slash">/</span><strong>Overview</strong></div><div className="topbar-actions"><div className="secure-pill"><span className="secure-dot" /> Secure workspace</div><button className="icon-button" aria-label="Notifications" onClick={() => setToast("You’re all caught up.")}><Bell size={18} /><i /></button><div className="avatar lecturer-avatar small">LC</div></div></header>
         <div className="page-content">
           <div className="welcome-row"><div><div className="eyebrow"><Sparkles size={13} /> YOUR ASSESSMENT SPACE</div><h1>Good morning, Jordan <span className="wave">✳</span></h1><p className="subhead">A clear view of your assessments and the students in them.</p></div><button className="button-primary" onClick={() => setShowCreate(true)}><Plus size={17} /> New assessment</button></div>
 
@@ -142,7 +182,7 @@ function LecturerDashboard() {
             <div className="session-tabs"><button className="tab active">All sessions <span>{sessions.length}</span></button><button className="tab" onClick={() => setToast("Live sessions are shown in the session list.")}>Live</button><button className="tab" onClick={() => setToast("Reports are available when you select a session.")}>Recent reports</button><div className="table-search"><Search size={15} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Find an assessment" /></div></div>
             <div className="session-table-wrap">
               <table className="session-table"><thead><tr><th>ASSESSMENT</th><th>STATUS</th><th>STUDENTS</th><th>NEEDS REVIEW</th><th>STARTED</th><th /></tr></thead>
-                <tbody>{loading ? <tr><td colSpan="6" className="empty-row">Loading sessions…</td></tr> : filtered.length ? filtered.map((item) => <tr className={selectedId === item.id ? "selected-row" : ""} key={item.id} onClick={() => { setSelectedId(item.id); setSession(item); }}><td><div className="assessment-cell"><div className="assessment-icon"><BookOpen size={17} /></div><div><strong>{item.title}</strong><span>Hosted by {item.lecturerName}</span></div></div></td><td><StatusPill status={item.status} /></td><td><div className="student-stack">{(item.students || []).slice(0, 3).map((student, index) => <div className={`avatar student-avatar color-${index % 4}`} key={student.id}>{initials(student.studentName)}</div>)}<span>{item.students?.length || 0} joined</span></div></td><td><span className={item.students?.some((student) => student.status === "awaiting-review") ? "review-count has-review" : "review-count"}>{item.students?.filter((student) => student.status === "awaiting-review").length || 0}</span></td><td className="time-cell">{formatTime(item.createdAt)}</td><td><button className="row-arrow" aria-label="Select session"><ArrowRight size={16} /></button></td></tr>) : <tr><td colSpan="6" className="empty-row"><div className="empty-state"><div className="empty-icon"><BookOpen size={22} /></div><strong>No assessment sessions yet</strong><span>Create your first session and share its student join link.</span><button className="button-primary" onClick={() => setShowCreate(true)}><Plus size={16} /> Create session</button></div></td></tr>}</tbody>
+                <tbody>{loading ? <tr><td colSpan="6" className="empty-row">Loading sessions…</td></tr> : filtered.length ? filtered.map((item) => <tr className={selectedId === item.id ? "selected-row" : ""} key={item.id} onClick={() => selectSession(item.id)}><td><div className="assessment-cell"><div className="assessment-icon"><BookOpen size={17} /></div><div><strong>{item.title}</strong><span>Hosted by {item.lecturerName}</span></div></div></td><td><StatusPill status={item.status} /></td><td><div className="student-stack">{(item.students || []).slice(0, 3).map((student, index) => <div className={`avatar student-avatar color-${index % 4}`} key={student.id}>{initials(student.studentName)}</div>)}<span>{item.students?.length || 0} joined</span></div></td><td><span className={item.students?.some((student) => student.status === "awaiting-review") ? "review-count has-review" : "review-count"}>{item.students?.filter((student) => student.status === "awaiting-review").length || 0}</span></td><td className="time-cell">{formatTime(item.createdAt)}</td><td><button className="row-arrow" aria-label="Select session"><ArrowRight size={16} /></button></td></tr>) : <tr><td colSpan="6" className="empty-row"><div className="empty-state"><div className="empty-icon"><BookOpen size={22} /></div><strong>No assessment sessions yet</strong><span>Create your first session and share its student join link.</span><button className="button-primary" onClick={() => setShowCreate(true)}><Plus size={16} /> Create session</button></div></td></tr>}</tbody>
               </table>
             </div>
           </section>
@@ -163,7 +203,7 @@ function Metric({ label, value, note, icon, accent }) {
 
 function CreateSessionModal({ onClose, onCreate }) {
   const [title, setTitle] = useState("");
-  const [lecturerName, setLecturerName] = useState("Jordan Miller");
+  const [lecturerName, setLecturerName] = useState("Learning Coach");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   async function submit(event) {
@@ -192,7 +232,7 @@ function SessionDetail({ session, onCopy, onApprove, onRefresh, onEnd, joinLink,
     link.click();
     URL.revokeObjectURL(url);
   }
-  return <section className="detail-section"><div className="section-heading detail-heading"><div><div className="eyebrow"><Radio size={12} /> {session.status === "live" ? "LIVE SESSION" : "COMPLETED SESSION"}</div><h2>{session.title}</h2><p>Started {new Date(session.createdAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })} <span className="bullet">·</span> {students.length} student{students.length === 1 ? "" : "s"} joined</p></div><div className="detail-actions">{session.status === "live" && <button className="button-secondary" onClick={onEnd}><X size={14} /> End assessment</button>}<button className="button-secondary" onClick={downloadReport}><FileText size={14} /> Export report</button><button className="button-secondary" onClick={onCopy}><Link2 size={15} /> Copy join link</button><button className="button-primary compact" onClick={onRefresh}><RefreshCw size={15} /> Update</button></div></div>
+  return <section className="detail-section"><div className="section-heading detail-heading"><div><div className="eyebrow"><Radio size={12} /> {session.status === "live" ? "LIVE SESSION" : "COMPLETED SESSION"}</div><h2>{session.title}</h2><p>Started {new Date(session.createdAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })} <span className="bullet">·</span> {students.length} student{students.length === 1 ? "" : "s"} joined</p></div><div className="detail-actions">{session.status === "live" && <button className="button-secondary" onClick={onEnd}><X size={14} /> End assessment</button>}<button className="button-secondary" onClick={downloadReport}><FileText size={14} /> Export report</button><button className="button-secondary" onClick={onCopy}><Link2 size={15} /> Copy join link</button><button className="button-primary compact" onClick={() => onRefresh(true)}><RefreshCw size={15} /> Update</button></div></div>
     <div className="join-banner"><div className="join-banner-icon"><Link2 size={18} /></div><div><strong>Invite students to join</strong><span>Anyone with this link can request access to this assessment.</span></div><button onClick={onCopy}><Copy size={15} /> Copy invite link</button></div>
     {copyFailed && <div className="manual-link-row"><label htmlFor="student-invite-link">Copy this student link manually</label><input id="student-invite-link" readOnly value={joinLink} onFocus={(event) => event.target.select()} onClick={(event) => event.target.select()} /><button className="button-secondary" onClick={() => { const field = document.getElementById("student-invite-link"); field?.focus(); field?.select(); }}>Select link</button></div>}
     {!students.length ? <div className="session-empty"><div className="empty-icon"><Users size={21} /></div><strong>Waiting for students to join</strong><span>Share the link above. Each student will have a separate review and activity log.</span></div> : <div className="detail-content"><div className="student-list"><div className="list-title">STUDENT SESSIONS <span>{students.length}</span></div>{students.map((student, index) => <button key={student.id} className={`student-list-item ${selected?.id === student.id ? "chosen" : ""}`} onClick={() => setSelectedStudentId(student.id)}><div className={`avatar student-avatar color-${index % 4}`}>{initials(student.studentName)}</div><span className="student-list-copy"><strong>{student.studentName}</strong><small>{student.studentNumber}</small></span><StatusDot status={student.status} /></button>)}</div>
@@ -396,11 +436,11 @@ function StudentJoin({ sessionId }) {
     if (!student || !session || !["setup", "awaiting-review", "approved"].includes(student.status)) return;
     const interval = setInterval(async () => {
       try {
-        const latest = await api(`/sessions/${session.id}`);
-        const current = latest.students.find((entry) => entry.id === student.id);
-        if (current) {
-          setStudent(current);
-          if (current.status === "ended") {
+        const latest = await api(`/sessions/${session.id}/students/${student.id}/status`);
+        const currentStatus = latest.sessionStatus === "ended" ? "ended" : latest.studentStatus;
+        if (currentStatus) {
+          setStudent((current) => current ? { ...current, status: currentStatus } : current);
+          if (currentStatus === "ended") {
             sessionEndRef.current = true;
             cameraStream?.getTracks().forEach((track) => track.stop());
             screenStream?.getTracks().forEach((track) => track.stop());
@@ -646,8 +686,11 @@ function eventTitle(type) { return ({ "assessment-monitoring-started": "Monitori
 function captureFrame(video, canvas) {
   if (!video || !canvas || !video.videoWidth) return null;
   const context = canvas.getContext("2d");
+  const scale = Math.min(1, 640 / video.videoWidth, 360 / video.videoHeight);
+  canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
+  canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
   context.drawImage(video, 0, 0, canvas.width, canvas.height);
-  return canvas.toDataURL("image/jpeg", 0.76);
+  return canvas.toDataURL("image/jpeg", 0.55);
 }
 
 function fallbackCopy(value) {

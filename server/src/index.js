@@ -9,6 +9,7 @@ import {
   createSession,
   createStudent,
   getSession,
+  getStudentStatus,
   listSessions,
   updateSession,
   updateStudent
@@ -57,6 +58,15 @@ app.get("/api/sessions/:id", (request, response) => {
   }
 
   response.json(session);
+});
+
+app.get("/api/sessions/:id/students/:studentId/status", (request, response) => {
+  const status = getStudentStatus(request.params.id, request.params.studentId);
+  if (!status) {
+    response.status(404).json({ error: "student or session not found" });
+    return;
+  }
+  response.json(status);
 });
 
 app.patch("/api/sessions/:id", (request, response) => {
