@@ -116,13 +116,31 @@ app.patch("/api/sessions/:id/students/:studentId", (request, response) => {
 });
 
 app.post("/api/sessions/:id/students/:studentId/precheck", (request, response) => {
-  const { shots } = request.body ?? {};
+  const { shots, video, summary } = request.body ?? {};
   if (!Array.isArray(shots) || shots.length < 3) {
     response.status(400).json({ error: "three background scan images are required" });
     return;
   }
+  if (!video?.dataUrl || typeof video.dataUrl !== "string") {
+    response.status(400).json({ error: "a short background-scan video under 3.5 MB is required" });
+    return;
+  }
+  if (!/^data:video\/(webm|mp4);base64,/.test(video.dataUrl)) {
+    response.status(400).json({ error: "background-scan video must be WebM or MP4" });
+    return;
+  }
+  const encodedVideo = video.dataUrl.slice(video.dataUrl.indexOf(",") + 1);
+  const padding = encodedVideo.endsWith("==") ? 2 : encodedVideo.endsWith("=") ? 1 : 0;
+  const videoBytes = Math.floor(encodedVideo.length * 3 / 4) - padding;
+  if (videoBytes >= 3_500_000) {
+    response.status(400).json({ error: "background-scan video must be under 3.5 MB" });
+    return;
+  }
   const student = updateStudent(request.params.id, request.params.studentId, {
     precheckShots: shots,
+    precheckVideo: { dataUrl: video.dataUrl, mimeType: video.mimeType, submittedAt: new Date().toISOString() },
+    precheckSummary: summary || {},
+    reviewMessage: "",
     status: "awaiting-review"
   });
   if (!student) {
@@ -134,17 +152,29 @@ app.post("/api/sessions/:id/students/:studentId/precheck", (request, response) =
 });
 
 app.patch("/api/sessions/:id/students/:studentId/approval", (request, response) => {
-  const { approved, reviewer = "lecturer" } = request.body ?? {};
+  const { approved, reviewer = "lecturer", message = "" } = request.body ?? {};
+  if (typeof approved !== "boolean") {
+    response.status(400).json({ error: "approved must be true or false" });
+    return;
+  }
+  if (!approved && !String(message).trim()) {
+    response.status(400).json({ error: "a personalized retry message is required" });
+    return;
+  }
   const student = updateStudent(request.params.id, request.params.studentId, {
-    status: approved ? "approved" : "awaiting-review",
+    status: approved ? "approved" : "changes-requested",
     approvedAt: approved ? new Date().toISOString() : null,
-    approvedBy: approved ? reviewer : null
+    approvedBy: approved ? reviewer : null,
+    reviewMessage: String(message).slice(0, 1000)
   });
   if (!student) {
     response.status(404).json({ error: "student or session not found" });
     return;
   }
-  addEvent(request.params.id, request.params.studentId, { type: approved ? "student-approved" : "approval-withheld" });
+  addEvent(request.params.id, request.params.studentId, {
+    type: approved ? "student-approved" : "scan-changes-requested",
+    payload: { message: String(message).slice(0, 1000), reviewer }
+  });
   response.json(student);
 });
 

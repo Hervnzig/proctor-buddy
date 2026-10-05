@@ -23,10 +23,11 @@ export function listSessions() {
   return [...sessions.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map((session) => ({
     ...session,
     students: session.students.map((student) => {
-      const { precheckShots, ...studentSummary } = student;
+      const { precheckShots, precheckVideo, ...studentSummary } = student;
       return {
         ...studentSummary,
         precheckShotCount: precheckShots.length,
+        hasPrecheckVideo: Boolean(precheckVideo?.dataUrl),
         events: student.events.map((event) => ({
           ...event,
           payload: Object.fromEntries(Object.entries(event.payload || {}).filter(([key]) => key !== "imageDataUrl"))
@@ -40,7 +41,7 @@ export function getStudentStatus(sessionId, studentId) {
   const session = sessions.get(sessionId);
   const student = session?.students.find((item) => item.id === studentId);
   if (!session || !student) return null;
-  return { sessionStatus: session.status, studentStatus: student.status };
+  return { sessionStatus: session.status, studentStatus: student.status, reviewMessage: student.reviewMessage || "" };
 }
 
 export function getSession(id) {
@@ -85,6 +86,9 @@ export function createStudent(sessionId, { studentName, studentNumber }) {
     approvedAt: null,
     approvedBy: null,
     precheckShots: [],
+    precheckVideo: null,
+    precheckSummary: null,
+    reviewMessage: "",
     events: []
   };
   session.students.push(student);

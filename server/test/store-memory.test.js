@@ -23,5 +23,5 @@ test("session summaries omit image payloads and event retention is bounded", () 
   const detailStudent = session.students[0];
   assert.equal(detailStudent.events.length, 300);
   assert.ok(detailStudent.events.filter((event) => event.payload.imageDataUrl).length <= 40);
-  assert.deepEqual(getStudentStatus(session.id, student.id), { sessionStatus: "live", studentStatus: "setup" });
+  assert.deepEqual(getStudentStatus(session.id, student.id), { sessionStatus: "live", studentStatus: "setup", reviewMessage: "" });
 });

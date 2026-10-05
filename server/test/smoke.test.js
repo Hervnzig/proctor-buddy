@@ -55,10 +55,23 @@ test("lecturer creates a quiz session and student session", async (context) => {
       { label: "left", imageDataUrl: "data:image/jpeg;base64,a" },
       { label: "center", imageDataUrl: "data:image/jpeg;base64,b" },
       { label: "right", imageDataUrl: "data:image/jpeg;base64,c" }
-    ] })
+    ], video: { dataUrl: "data:video/webm;base64,dmlkZW8=", mimeType: "video/webm" }, summary: { faceFrames: 8, maxFaces: 1, positionChanges: 2 } })
   });
   assert.equal(precheck.response.status, 200);
   assert.equal(precheck.body.status, "awaiting-review");
+  assert.equal(precheck.body.precheckSummary.positionChanges, 2);
+
+  const retry = await request(`/api/sessions/${sessionId}/students/${studentId}/approval`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ approved: false, reviewer: "Jordan Miller", message: "Please show the desk more slowly." })
+  });
+  assert.equal(retry.body.status, "changes-requested");
+  assert.equal(retry.body.reviewMessage, "Please show the desk more slowly.");
+
+  const status = await request(`/api/sessions/${sessionId}/students/${studentId}/status`);
+  assert.equal(status.body.studentStatus, "changes-requested");
+  assert.equal(status.body.reviewMessage, "Please show the desk more slowly.");
 
   const approved = await request(`/api/sessions/${sessionId}/students/${studentId}/approval`, {
     method: "PATCH",
@@ -75,5 +88,5 @@ test("lecturer creates a quiz session and student session", async (context) => {
   assert.equal(event.response.status, 202);
 
   const detail = await request(`/api/sessions/${sessionId}`);
-  assert.equal(detail.body.students[0].events.length, 3);
+  assert.equal(detail.body.students[0].events.length, 4);
 });
