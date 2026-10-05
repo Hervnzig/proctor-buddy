@@ -48,6 +48,13 @@ test("lecturer creates a quiz session and student session", async (context) => {
   assert.equal(joined.response.status, 201);
 
   const studentId = joined.body.id;
+  const bypassApproval = await request(`/api/sessions/${sessionId}/students/${studentId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ status: "approved" })
+  });
+  assert.equal(bypassApproval.response.status, 400);
+
   const precheck = await request(`/api/sessions/${sessionId}/students/${studentId}/precheck`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -55,16 +62,30 @@ test("lecturer creates a quiz session and student session", async (context) => {
       { label: "left", imageDataUrl: "data:image/jpeg;base64,a" },
       { label: "center", imageDataUrl: "data:image/jpeg;base64,b" },
       { label: "right", imageDataUrl: "data:image/jpeg;base64,c" }
-    ], video: { dataUrl: "data:video/webm;base64,dmlkZW8=", mimeType: "video/webm" }, summary: { faceFrames: 8, maxFaces: 1, positionChanges: 2 } })
+    ], video: { dataUrl: "data:video/webm;base64,dmlkZW8=", mimeType: "video/webm" }, summary: { faceFrames: 8, maxFaces: 1, positionChanges: 2, objectAnalysis: { status: "complete", objects: [{ label: "cup", sightings: 2, maxConfidence: 0.8 }] } } })
   });
   assert.equal(precheck.response.status, 200);
   assert.equal(precheck.body.status, "awaiting-review");
   assert.equal(precheck.body.precheckSummary.positionChanges, 2);
 
+  const missingReviewAck = await request(`/api/sessions/${sessionId}/students/${studentId}/approval`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ approved: true, reviewer: "Jordan Miller", confirmedObjects: ["cup"] })
+  });
+  assert.equal(missingReviewAck.response.status, 400);
+
+  const unconfirmedApproval = await request(`/api/sessions/${sessionId}/students/${studentId}/approval`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ approved: true, reviewer: "Jordan Miller", reviewedEvidence: true, confirmedObjects: [] })
+  });
+  assert.equal(unconfirmedApproval.response.status, 400);
+
   const retry = await request(`/api/sessions/${sessionId}/students/${studentId}/approval`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ approved: false, reviewer: "Jordan Miller", message: "Please show the desk more slowly." })
+    body: JSON.stringify({ approved: false, reviewer: "Jordan Miller", message: "Please show the desk more slowly.", reviewedEvidence: true })
   });
   assert.equal(retry.body.status, "changes-requested");
   assert.equal(retry.body.reviewMessage, "Please show the desk more slowly.");
@@ -73,10 +94,21 @@ test("lecturer creates a quiz session and student session", async (context) => {
   assert.equal(status.body.studentStatus, "changes-requested");
   assert.equal(status.body.reviewMessage, "Please show the desk more slowly.");
 
+  const resubmitted = await request(`/api/sessions/${sessionId}/students/${studentId}/precheck`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ shots: [
+      { label: "left", imageDataUrl: "data:image/jpeg;base64,a" },
+      { label: "center", imageDataUrl: "data:image/jpeg;base64,b" },
+      { label: "right", imageDataUrl: "data:image/jpeg;base64,c" }
+    ], video: { dataUrl: "data:video/webm;base64,dmlkZW8=", mimeType: "video/webm" }, summary: { objectAnalysis: { status: "complete", objects: [{ label: "cup", sightings: 2, maxConfidence: 0.8 }] } } })
+  });
+  assert.equal(resubmitted.body.status, "awaiting-review");
+
   const approved = await request(`/api/sessions/${sessionId}/students/${studentId}/approval`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ approved: true, reviewer: "Jordan Miller" })
+    body: JSON.stringify({ approved: true, reviewer: "Jordan Miller", reviewedEvidence: true, confirmedObjects: ["cup"] })
   });
   assert.equal(approved.body.status, "approved");
 
@@ -88,5 +120,5 @@ test("lecturer creates a quiz session and student session", async (context) => {
   assert.equal(event.response.status, 202);
 
   const detail = await request(`/api/sessions/${sessionId}`);
-  assert.equal(detail.body.students[0].events.length, 4);
+  assert.equal(detail.body.students[0].events.length, 5);
 });

@@ -7,6 +7,7 @@ import {
   ShieldCheck, ShieldAlert, Sparkles, UserRound, Users, Video, Webcam, X
 } from "lucide-react";
 import { startFaceTracking } from "./faceTracker.js";
+import { analyzeBackgroundVideo } from "./backgroundObjectTracker.js";
 import { isEntireDisplaySurface } from "./screenShare.js";
 
 const api = async (path, options = {}) => {
@@ -120,9 +121,9 @@ function LecturerDashboard() {
     }
   }
 
-  async function approveStudent(studentId, approved, message) {
+  async function approveStudent(studentId, approved, message, review) {
     await api(`/sessions/${session.id}/students/${studentId}/approval`, {
-      method: "PATCH", body: JSON.stringify({ approved, reviewer: "Learning Coach", message })
+      method: "PATCH", body: JSON.stringify({ approved, reviewer: "Learning Coach", message, ...review })
     });
     await refresh(true);
     setToast(approved ? "Student approved to begin" : "Retry requested with personalized guidance");
@@ -245,7 +246,18 @@ function StudentReport({ session, student, onApprove }) {
   const [activeTab, setActiveTab] = useState("Overview");
   return <div className="report-panel"><div className="report-person"><div><div className="report-heading"><div className="avatar student-avatar color-2 large">{initials(student.studentName)}</div><div><h3>{student.studentName}</h3><span>{student.studentNumber} <span className="bullet">·</span> Joined {formatTime(student.joinedAt)}</span></div></div></div><StatusPill status={student.status} /></div>
     <div className="report-tabs">{["Overview", "Activity log"].map((tab) => <button className={activeTab === tab ? "active" : ""} key={tab} onClick={() => setActiveTab(tab)}>{tab}{tab === "Activity log" && <span>{student.events?.length || 0}</span>}</button>)}</div>
-    {activeTab === "Overview" ? <><LiveFeeds sessionId={session.id} student={student}/><div className="evidence-heading"><div><h4>Workspace check</h4><span>Student-submitted background scan</span></div><span className="evidence-count">{student.precheckShots?.length || 0} images{student.precheckVideo ? " · video" : ""}</span></div>{student.precheckVideo?.dataUrl && <div className="precheck-video-review"><video controls preload="metadata" playsInline src={student.precheckVideo.dataUrl}/><span>Review the student's short background walkthrough before deciding.</span></div>}{student.precheckSummary && <div className="cv-summary"><strong>On-device scan summary</strong><span>{student.precheckSummary.faceFrames ?? 0} sampled checks · {student.precheckSummary.maxFaces ?? 0} maximum faces detected · {student.precheckSummary.positionChanges ?? 0} face-position changes. Automated cues are approximate; review the video yourself.</span></div>}<div className="scan-grid">{student.precheckShots?.length ? student.precheckShots.map((shot) => <div className="scan-shot" key={shot.label}><img src={shot.imageDataUrl} alt={`${shot.label} room scan`} /><span>{shot.label}</span></div>) : <div className="no-evidence"><Webcam size={18} /> Background scan has not been submitted.</div>}</div><div className="review-bar"><div className="review-bar-copy"><ShieldCheck size={17}/><span>{student.status === "awaiting-review" ? "Review the video and scan summary before allowing the quiz to begin." : student.status === "approved" ? "Student has been approved for this session." : student.status === "changes-requested" ? "Retry requested; waiting for the student's updated scan." : "Student is completing their device setup."}</span></div>{student.status === "awaiting-review" && <ReviewDecision student={student} onDecide={onApprove}/>}</div>{student.reviewMessage && <div className="review-message-preview"><strong>Last message to student</strong><p>{student.reviewMessage}</p></div>}</> : <EventTimeline events={student.events || []} />}
+    {activeTab === "Overview" ? <>
+      <section className="workspace-review-panel" aria-label="Review student's background evidence">
+        <div className="evidence-heading"><div><h4>Review background before admission</h4><span>Check the submitted walkthrough and all three still images before deciding.</span></div><span className="evidence-count">{student.precheckShots?.length || 0} images{student.precheckVideo ? " · video" : ""}</span></div>
+        {student.precheckVideo?.dataUrl ? <div className="precheck-video-review"><video controls preload="metadata" playsInline src={student.precheckVideo.dataUrl}/><span>Student's short background walkthrough · use playback controls to inspect the full clip.</span></div> : <div className="no-evidence"><Webcam size={18}/> Student video has not been submitted.</div>}
+        {student.precheckSummary && <div className="cv-summary"><strong>On-device face-cue summary</strong><span>{student.precheckSummary.faceFrames ?? 0} sampled checks · {student.precheckSummary.maxFaces ?? 0} maximum faces detected · {student.precheckSummary.positionChanges ?? 0} face-position changes. Approximate cues only; they do not determine room compliance.</span></div>}
+        <div className="scan-grid">{student.precheckShots?.length ? student.precheckShots.map((shot) => <div className="scan-shot" key={shot.label}><img src={shot.imageDataUrl} alt={`${shot.label} room scan`} /><span>{shot.label}</span></div>) : <div className="no-evidence"><Webcam size={18} /> Background images have not been submitted.</div>}</div>
+        <div className="review-bar"><div className="review-bar-copy"><ShieldCheck size={17}/><span>{student.status === "awaiting-review" ? "Review the evidence and AI-assisted object cues before allowing the quiz to begin." : student.status === "approved" ? "Student has been approved for this session." : student.status === "changes-requested" ? "Retry requested; waiting for the student's updated scan." : "Student is completing their device setup."}</span></div></div>
+        {student.status === "awaiting-review" && <ReviewDecision key={student.id} student={student} onDecide={onApprove}/>}
+        {student.reviewMessage && <div className="review-message-preview"><strong>Last message to student</strong><p>{student.reviewMessage}</p></div>}
+      </section>
+      <LiveFeeds sessionId={session.id} student={student}/>
+    </> : <EventTimeline events={student.events || []} />}
   </div>;
 }
 
@@ -253,7 +265,19 @@ function ReviewDecision({ student, onDecide }) {
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [reviewedEvidence, setReviewedEvidence] = useState(false);
+  const [confirmedObjects, setConfirmedObjects] = useState([]);
+  const objects = student.precheckSummary?.objectAnalysis?.objects || [];
+  const allObjectsConfirmed = objects.every((item) => confirmedObjects.includes(item.label));
   async function decide(approved) {
+    if (!reviewedEvidence) {
+      setError("Review the submitted video and all three images before making a decision.");
+      return;
+    }
+    if (approved && !allObjectsConfirmed) {
+      setError("Confirm each detected object category is acceptable before approving.");
+      return;
+    }
     if (!approved && !message.trim()) {
       setError("Add the specific changes the student needs to make before requesting a retry.");
       return;
@@ -261,14 +285,23 @@ function ReviewDecision({ student, onDecide }) {
     setBusy(true);
     setError("");
     try {
-      await onDecide(student.id, approved, message.trim());
+      await onDecide(student.id, approved, message.trim(), { reviewedEvidence, confirmedObjects });
     } catch (requestError) {
       setError(requestError.message || "Could not save your review.");
     } finally {
       setBusy(false);
     }
   }
-  return <div className="review-decision"><label className="field-label">Message for student (required for retry)<textarea value={message} onChange={(event) => setMessage(event.target.value)} maxLength={1000} placeholder="e.g. Please pan the camera more slowly and ensure the whole desk is visible." /></label><div className="review-buttons"><button className="button-secondary" disabled={busy} onClick={() => decide(false)}>Request changes & retry</button><button className="button-primary compact" disabled={busy} onClick={() => decide(true)}><Check size={15}/>{busy ? "Saving…" : "Approve student"}</button></div>{error && <div className="form-error">{error}</div>}</div>;
+  return <div className="review-decision">
+    <div className="object-review-list">
+      <strong>Background object cues <span>AI-assisted · lecturer confirms</span></strong>
+      {student.precheckSummary?.objectAnalysis?.status === "unavailable" && <p>{student.precheckSummary.objectAnalysis.note}</p>}
+      {objects.length ? objects.map((item) => <label key={item.label} className="object-review-item"><input type="checkbox" checked={confirmedObjects.includes(item.label)} onChange={(event) => setConfirmedObjects((old) => event.target.checked ? [...old, item.label] : old.filter((label) => label !== item.label))}/><span><b>{item.label}</b> · {item.sightings} sampled frame{item.sightings === 1 ? "" : "s"} · up to {Math.round(item.maxConfidence * 100)}% confidence{item.sampleSeconds?.length ? ` · at ${item.sampleSeconds.map((second) => `${second}s`).join(", ")}` : ""} · I confirm this category is acceptable.</span></label>) : student.precheckSummary?.objectAnalysis?.status === "complete" ? <p>No object categories detected in sampled frames. This does not mean the space is empty.</p> : <p>Object labels unavailable; assess the video and images manually.</p>}
+    </div>
+    <label className="evidence-review-confirm"><input type="checkbox" checked={reviewedEvidence} onChange={(event) => setReviewedEvidence(event.target.checked)}/><span>I reviewed the walkthrough video and all submitted background images.</span></label>
+    <label className="field-label">Message for student (required for retry)<textarea value={message} onChange={(event) => setMessage(event.target.value)} maxLength={1000} placeholder="e.g. Please pan the camera more slowly and ensure the whole desk is visible." /></label>
+    <div className="review-buttons"><button className="button-secondary" disabled={busy || !reviewedEvidence} onClick={() => decide(false)}>Request changes & retry</button><button className="button-primary compact" disabled={busy || !reviewedEvidence || !allObjectsConfirmed} onClick={() => decide(true)}><Check size={15}/>{busy ? "Saving…" : "Confirm & approve"}</button></div>{error && <div className="form-error">{error}</div>}
+  </div>;
 }
 
 function LiveFeeds({ sessionId, student }) {
@@ -430,6 +463,7 @@ function StudentJoin({ sessionId }) {
   const [recordingScan, setRecordingScan] = useState(false);
   const [scanVideoSize, setScanVideoSize] = useState(0);
   const [scanAnalysis, setScanAnalysis] = useState({ faceFrames: 0, maxFaces: 0, positionChanges: 0 });
+  const [analyzingObjects, setAnalyzingObjects] = useState(false);
   const [eventCount, setEventCount] = useState(0);
   const [faceMonitor, setFaceMonitor] = useState({ state: "idle", count: null, detail: "Local face-presence and position checks start after webcam access." });
   const cameraRef = useRef(null);
@@ -774,19 +808,34 @@ function StudentJoin({ sessionId }) {
 
   async function submitScan() {
     if (Object.keys(shots).length < 3 || !scanVideoBlobRef.current || !cameraStream || !screenStream) return;
-    setBusy(true); setError("");
+    setBusy(true); setAnalyzingObjects(true); setError("");
     try {
       const dataUrl = await blobToDataUrl(scanVideoBlobRef.current);
+      let objectSummary;
+      try {
+        objectSummary = await analyzeBackgroundVideo(scanVideoBlobRef.current);
+      } catch (analysisError) {
+        objectSummary = {
+          status: "unavailable",
+          sampleCount: 0,
+          objects: [],
+          note: `Automatic object cues were unavailable (${analysisError.message || "model could not load"}). Review the video and images manually.`
+        };
+      }
       const result = await api(`/sessions/${sessionId}/students/${student.id}/precheck`, {
         method: "POST",
         body: JSON.stringify({
           shots: ["left", "center", "right"].map((label) => shots[label]),
           video: { dataUrl, mimeType: scanVideoBlobRef.current.type },
-          summary: { ...scanAnalysis, note: "Approximate on-device face presence/count and face-position cues during the clip; not a room-compliance or misconduct determination." }
+          summary: {
+            ...scanAnalysis,
+            objectAnalysis: objectSummary,
+            note: "Approximate on-device face presence/count and face-position cues during the clip; not a room-compliance or misconduct determination."
+          }
         })
       });
       setStudent(result); setSaved(true);
-    } catch (err) { setError(err.message); } finally { setBusy(false); }
+    } catch (err) { setError(err.message); } finally { setBusy(false); setAnalyzingObjects(false); }
   }
 
   async function endSession() {
@@ -801,7 +850,7 @@ function StudentJoin({ sessionId }) {
   if (!session) return <StudentShell><div className="student-loading">Loading assessment details…</div></StudentShell>;
   if (session.status !== "live") return <StudentShell><div className="student-error"><Clock3 size={26}/><h2>This assessment isn’t open</h2><p>Ask your lecturer if you think you should have access.</p></div></StudentShell>;
 
-  if (!student) return <StudentShell><div className="student-join-card"><div className="student-symbol"><GraduationCap size={22}/></div><div className="eyebrow">ASSESSMENT INVITATION</div><h1>{session.title}</h1><p className="student-intro">Hosted by {session.lecturerName}. Join to complete your device check and request access to begin.</p><div className="privacy-callout"><LockKeyhole size={17}/><span>Your lecturer will see your screen and webcam only after you choose to share them. You can stop sharing anytime.</span></div><label className="field-label">Your name<input value={studentName} onChange={(event) => setStudentName(event.target.value)} placeholder="First and last name" /></label><label className="field-label">Student number<input value={studentNumber} onChange={(event) => setStudentNumber(event.target.value)} placeholder="Your class ID" /></label><label className="consent-check"><input type="checkbox" checked={consented} onChange={(event) => setConsented(event.target.checked)} /><span>I understand my lecturer can view the screen and webcam I choose to share during the approved session. While my webcam is enabled, approximate face-presence/count and coarse face-position checks run locally on my device. These cues may be inaccurate and are not misconduct findings. Background images and session activity are logged. When the local face-position check detects a change, a screenshot of the shared screen may be captured for the session log and lecturer review. This is an approximate face-position cue, not a full-body movement or misconduct determination.</span></label>{error && <div className="form-error">{error}</div>}<button className="button-primary full-button" onClick={join} disabled={busy || !studentName.trim() || !studentNumber.trim() || !consented}>{busy ? "Joining…" : "Continue to device check"}<ArrowRight size={16}/></button><div className="student-safe-note"><ShieldCheck size={14}/> Permission is requested by your browser, not granted silently.</div></div></StudentShell>;
+  if (!student) return <StudentShell><div className="student-join-card"><div className="student-symbol"><GraduationCap size={22}/></div><div className="eyebrow">ASSESSMENT INVITATION</div><h1>{session.title}</h1><p className="student-intro">Hosted by {session.lecturerName}. Join to complete your device check and request access to begin.</p><div className="privacy-callout"><LockKeyhole size={17}/><span>Your lecturer will see your screen and webcam only after you choose to share them. You can stop sharing anytime.</span></div><label className="field-label">Your name<input value={studentName} onChange={(event) => setStudentName(event.target.value)} placeholder="First and last name" /></label><label className="field-label">Student number<input value={studentNumber} onChange={(event) => setStudentNumber(event.target.value)} placeholder="Your class ID" /></label><label className="consent-check"><input type="checkbox" checked={consented} onChange={(event) => setConsented(event.target.checked)} /><span>I understand my lecturer can view the screen and webcam I choose to share during the approved session. While my webcam is enabled, approximate face-presence/count and coarse face-position checks run locally on my device. These cues may be inaccurate and are not misconduct findings. Background images and session activity are logged. The submitted walkthrough is also sampled on this device by an object detector; approximate object-category labels and confidence summaries are shared with your lecturer for review. This may miss or mislabel objects and does not determine whether your workspace is acceptable.</span></label>{error && <div className="form-error">{error}</div>}<button className="button-primary full-button" onClick={join} disabled={busy || !studentName.trim() || !studentNumber.trim() || !consented}>{busy ? "Joining…" : "Continue to device check"}<ArrowRight size={16}/></button><div className="student-safe-note"><ShieldCheck size={14}/> Permission is requested by your browser, not granted silently.</div></div></StudentShell>;
 
   const allShots = Object.keys(shots).length === 3;
   const isApproved = student.status === "approved";
@@ -820,7 +869,7 @@ function StudentJoin({ sessionId }) {
             <div className="scan-card"><div className="scan-card-heading"><div><div className="eyebrow">WORKSPACE CHECK</div><h2>Show your surroundings</h2><p>Capture left, center, and right views of your workspace.</p></div><div className="scan-count">{Object.keys(shots).length}<span>/3</span></div></div><div className="scan-capture-row">{[{ key: "left", label: "Left side", icon: <ArrowDownLeft size={16}/> }, { key: "center", label: "Straight ahead", icon: <UserRound size={16}/> }, { key: "right", label: "Right side", icon: <ArrowDownLeft className="flip-icon" size={16}/> }].map((item) => <button className={`capture-tile ${shots[item.key] ? "captured" : ""}`} key={item.key} disabled={!cameraStream} onClick={() => capture(item.key)}>{shots[item.key] ? <img src={shots[item.key].imageDataUrl} alt={`${item.label} scan`}/> : <span className="capture-placeholder">{item.icon}</span>}<span className="capture-label">{shots[item.key] ? <CheckCircle2 size={13}/> : null}{item.label}</span></button>)}</div><div className="scan-hint"><Eye size={15}/> Images are shared with your lecturer for review.</div></div>
             <div className="scan-card background-video-card"><div className="eyebrow">10-SECOND WALKTHROUGH</div><h2>Record a short video of your background</h2><p>Move your webcam slowly to show the area around your workspace. Maximum upload size: 3.5 MB.</p>{scanVideoUrl && <video className="background-video-preview" style={{ width: "100%", maxHeight: 320, objectFit: "contain" }} src={scanVideoUrl} controls playsInline/>}{recordingScan ? <div className="recording-controls" style={{ display: "flex", alignItems: "center", gap: 10 }}><span className="recording-indicator"><i/>Recording (up to 10 seconds)</span><button className="button-secondary" onClick={finishBackgroundScan}>Stop recording</button></div> : <div className="recording-controls" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}><button className="button-secondary" onClick={recordBackgroundScan} disabled={!cameraStream || busy}><Video size={15}/>{scanVideoUrl ? "Record again" : "Record background video"}</button>{scanVideoUrl && <><button className="button-secondary" onClick={() => { scanVideoBlobRef.current = null; setScanVideoUrl(""); setScanVideoSize(0); if (scanVideoUrlRef.current) URL.revokeObjectURL(scanVideoUrlRef.current); scanVideoUrlRef.current = ""; }}>Remove video</button><span className="video-size-note">{(scanVideoSize / (1024 * 1024)).toFixed(2)} MB</span></>}</div>}<div className="scan-hint"><Eye size={15}/> Approximate on-device face-presence and position cues are only a review aid; your lecturer reviews the video.</div></div>
             {error && <div className="form-error student-form-error"><ShieldAlert size={15}/><span>{error}</span>{!cameraStream && <button className="button-secondary" onClick={enableCamera}>Enable webcam</button>}{!screenStream && <button className="button-secondary" onClick={shareScreen}>Share entire screen</button>}</div>}
-            <div className="setup-footer"><div><LockKeyhole size={15}/><span>Camera and screen access can be stopped in your browser at any time.</span></div><button className="button-primary" onClick={submitScan} disabled={busy || recordingScan || !cameraStream || !screenStream || !allShots || !scanVideoBlobRef.current}>{busy ? "Submitting…" : "Submit setup for review"}<ArrowRight size={16}/></button></div>
+            <div className="setup-footer"><div><LockKeyhole size={15}/><span>Camera and screen access can be stopped in your browser at any time.</span></div><button className="button-primary" onClick={submitScan} disabled={busy || recordingScan || !cameraStream || !screenStream || !allShots || !scanVideoBlobRef.current}>{busy ? analyzingObjects ? "Analyzing walkthrough…" : "Submitting…" : "Submit setup for review"}<ArrowRight size={16}/></button></div>
           </div>}
            </div>
       <footer className="student-footer"><span><ShieldCheck size={14}/> Verity · Assessment workspace</span><a href="#" onClick={(event) => { event.preventDefault(); alert("Contact your lecturer for help with this assessment."); }}>Need help?</a></footer><video ref={trackingVideoRef} className="tracking-video" autoPlay playsInline muted/><canvas ref={canvasRef} width="720" height="405" hidden/>

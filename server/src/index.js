@@ -107,7 +107,12 @@ app.post("/api/sessions/:id/students", (request, response) => {
 });
 
 app.patch("/api/sessions/:id/students/:studentId", (request, response) => {
-  const student = updateStudent(request.params.id, request.params.studentId, request.body ?? {});
+  const changes = request.body ?? {};
+  if (changes.status && !["setup", "ended"].includes(changes.status)) {
+    response.status(400).json({ error: "student status can only be set to setup or ended here" });
+    return;
+  }
+  const student = updateStudent(request.params.id, request.params.studentId, changes);
   if (!student) {
     response.status(404).json({ error: "student or session not found" });
     return;
@@ -152,7 +157,7 @@ app.post("/api/sessions/:id/students/:studentId/precheck", (request, response) =
 });
 
 app.patch("/api/sessions/:id/students/:studentId/approval", (request, response) => {
-  const { approved, reviewer = "lecturer", message = "" } = request.body ?? {};
+  const { approved, reviewer = "lecturer", message = "", reviewedEvidence, confirmedObjects = [] } = request.body ?? {};
   if (typeof approved !== "boolean") {
     response.status(400).json({ error: "approved must be true or false" });
     return;
@@ -161,11 +166,28 @@ app.patch("/api/sessions/:id/students/:studentId/approval", (request, response) 
     response.status(400).json({ error: "a personalized retry message is required" });
     return;
   }
+  if (reviewedEvidence !== true) {
+    response.status(400).json({ error: "confirm that the submitted video and background images were reviewed" });
+    return;
+  }
+  const currentSession = getSession(request.params.id);
+  const currentStudent = currentSession?.students.find((item) => item.id === request.params.studentId);
+  if (!currentStudent || currentStudent.status !== "awaiting-review" || !currentStudent.precheckVideo?.dataUrl || currentStudent.precheckShots?.length < 3) {
+    response.status(409).json({ error: "a submitted video and three images must be awaiting review" });
+    return;
+  }
+  const detectedObjectLabels = (currentStudent.precheckSummary?.objectAnalysis?.objects || []).map((item) => item.label);
+  if (approved && (!Array.isArray(confirmedObjects) || detectedObjectLabels.some((label) => !confirmedObjects.includes(label)))) {
+    response.status(400).json({ error: "confirm each detected object category before approval" });
+    return;
+  }
   const student = updateStudent(request.params.id, request.params.studentId, {
     status: approved ? "approved" : "changes-requested",
     approvedAt: approved ? new Date().toISOString() : null,
     approvedBy: approved ? reviewer : null,
-    reviewMessage: String(message).slice(0, 1000)
+    reviewMessage: String(message).slice(0, 1000),
+    lecturerReviewedEvidence: true,
+    lecturerConfirmedObjects: approved ? detectedObjectLabels : []
   });
   if (!student) {
     response.status(404).json({ error: "student or session not found" });
@@ -173,7 +195,7 @@ app.patch("/api/sessions/:id/students/:studentId/approval", (request, response) 
   }
   addEvent(request.params.id, request.params.studentId, {
     type: approved ? "student-approved" : "scan-changes-requested",
-    payload: { message: String(message).slice(0, 1000), reviewer }
+    payload: { message: String(message).slice(0, 1000), reviewer, reviewedEvidence: true, confirmedObjects: approved ? detectedObjectLabels : [] }
   });
   response.json(student);
 });
