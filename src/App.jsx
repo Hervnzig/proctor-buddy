@@ -157,7 +157,7 @@ function LecturerDashboard() {
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <div className="brand"><div className="brand-mark"><ShieldCheck size={19} /></div><span>verity<span className="brand-dot">.</span></span><span className="brand-tag">ASSESS</span></div>
+        <div className="brand"><div className="brand-mark"><ShieldCheck size={19} /></div><span>Proctor Buddy</span><span className="brand-tag">ASSESS</span></div>
         <div className="workspace-label">WORKSPACE</div>
         <button className="nav-item active"><Grid2X2 size={17} /> Overview</button>
         <button className="nav-item" onClick={() => setShowCreate(true)}><Radio size={17} /> Live sessions <span className="nav-count">{sessions.length}</span></button>
@@ -190,7 +190,7 @@ function LecturerDashboard() {
           </section>
 
           {session && <SessionDetail session={session} onCopy={copyJoinLink} joinLink={`${location.origin}/?join=${session.id}`} copyFailed={copyFailed} onApprove={approveStudent} onRefresh={refresh} onEnd={endAssessment} />}
-          <footer className="page-footer"><span><LockKeyhole size={13} /> Student permission is always required for camera and screen access.</span><span>Verity MVP <span className="footer-sep">·</span> Local prototype</span></footer>
+          <footer className="page-footer"><span><LockKeyhole size={13} /> Student permission is always required for camera and screen access.</span><span>Proctor Buddy MVP <span className="footer-sep">·</span> Local prototype</span></footer>
         </div>
       </main>
       {showCreate && <CreateSessionModal onClose={() => setShowCreate(false)} onCreate={createSession} />}
@@ -221,20 +221,45 @@ function SessionDetail({ session, onCopy, onApprove, onRefresh, onEnd, joinLink,
   const [selectedStudentId, setSelectedStudentId] = useState(students[0]?.id || null);
   const selected = students.find((student) => student.id === selectedStudentId) || students[0] || null;
   useEffect(() => { if (!students.find((student) => student.id === selectedStudentId)) setSelectedStudentId(students[0]?.id || null); }, [students, selectedStudentId]);
+  function buildMovementLog(student) {
+    return (student.events || []).map((event) => ({
+      timestamp: event.timestamp,
+      eventType: event.type,
+      title: eventTitle(event.type),
+      severity: eventSeverity(event.type),
+      message: event.payload?.message || event.payload?.detail || event.payload?.note || event.type.replaceAll("-", " "),
+      faceCount: event.payload?.faceCount ?? null
+    }));
+  }
   function downloadReport() {
     const report = {
       assessment: { id: session.id, title: session.title, lecturerName: session.lecturerName, status: session.status, createdAt: session.createdAt, endedAt: session.endedAt || null },
       exportedAt: new Date().toISOString(),
-      students: session.students.map(({ id, studentName, studentNumber, status, consentAt, joinedAt, approvedAt, approvedBy, precheckShots, events }) => ({ id, studentName, studentNumber, status, consentAt, joinedAt, approvedAt, approvedBy, precheckShots, events }))
+      students: session.students.map(({ id, studentName, studentNumber, status, consentAt, joinedAt, approvedAt, approvedBy, precheckShots, events }) => ({ id, studentName, studentNumber, status, consentAt, joinedAt, approvedAt, approvedBy, precheckShots, events, movementLog: buildMovementLog({ events }) }))
     };
     const url = URL.createObjectURL(new Blob([JSON.stringify(report, null, 2)], { type: "application/json" }));
     const link = document.createElement("a");
     link.href = url;
-    link.download = `verity-${session.title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-report.json`;
+    link.download = `proctor-buddy-${session.title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-report.json`;
     link.click();
     URL.revokeObjectURL(url);
   }
-  return <section className="detail-section"><div className="section-heading detail-heading"><div><div className="eyebrow"><Radio size={12} /> {session.status === "live" ? "LIVE SESSION" : "COMPLETED SESSION"}</div><h2>{session.title}</h2><p>Started {new Date(session.createdAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })} <span className="bullet">·</span> {students.length} student{students.length === 1 ? "" : "s"} joined</p></div><div className="detail-actions">{session.status === "live" && <button className="button-secondary" onClick={onEnd}><X size={14} /> End assessment</button>}<button className="button-secondary" onClick={downloadReport}><FileText size={14} /> Export report</button><button className="button-secondary" onClick={onCopy}><Link2 size={15} /> Copy join link</button><button className="button-primary compact" onClick={() => onRefresh(true)}><RefreshCw size={15} /> Update</button></div></div>
+  function downloadMovementLog() {
+    if (!selected) return;
+    const movementLog = {
+      assessment: { id: session.id, title: session.title },
+      student: { id: selected.id, name: selected.studentName, studentNumber: selected.studentNumber },
+      exportedAt: new Date().toISOString(),
+      entries: buildMovementLog(selected)
+    };
+    const url = URL.createObjectURL(new Blob([JSON.stringify(movementLog, null, 2)], { type: "application/json" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `proctor-buddy-${selected.studentName.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-movement-log.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+  return <section className="detail-section"><div className="section-heading detail-heading"><div><div className="eyebrow"><Radio size={12} /> {session.status === "live" ? "LIVE SESSION" : "COMPLETED SESSION"}</div><h2>{session.title}</h2><p>Started {new Date(session.createdAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })} <span className="bullet">·</span> {students.length} student{students.length === 1 ? "" : "s"} joined</p></div><div className="detail-actions">{session.status === "live" && <button className="button-secondary" onClick={onEnd}><X size={14} /> End assessment</button>}<button className="button-secondary" onClick={downloadReport}><FileText size={14} /> Export report</button>{selected && <button className="button-secondary" onClick={downloadMovementLog}><Activity size={14} /> Export movement log</button>}<button className="button-secondary" onClick={onCopy}><Link2 size={15} /> Copy join link</button><button className="button-primary compact" onClick={() => onRefresh(true)}><RefreshCw size={15} /> Update</button></div></div>
     <div className="join-banner"><div className="join-banner-icon"><Link2 size={18} /></div><div><strong>Invite students to join</strong><span>Anyone with this link can request access to this assessment.</span></div><button onClick={onCopy}><Copy size={15} /> Copy invite link</button></div>
     {copyFailed && <div className="manual-link-row"><label htmlFor="student-invite-link">Copy this student link manually</label><input id="student-invite-link" readOnly value={joinLink} onFocus={(event) => event.target.select()} onClick={(event) => event.target.select()} /><button className="button-secondary" onClick={() => { const field = document.getElementById("student-invite-link"); field?.focus(); field?.select(); }}>Select link</button></div>}
     {!students.length ? <div className="session-empty"><div className="empty-icon"><Users size={21} /></div><strong>Waiting for students to join</strong><span>Share the link above. Each student will have a separate review and activity log.</span></div> : <div className="detail-content"><div className="student-list"><div className="list-title">STUDENT SESSIONS <span>{students.length}</span></div>{students.map((student, index) => <button key={student.id} className={`student-list-item ${selected?.id === student.id ? "chosen" : ""}`} onClick={() => setSelectedStudentId(student.id)}><div className={`avatar student-avatar color-${index % 4}`}>{initials(student.studentName)}</div><span className="student-list-copy"><strong>{student.studentName}</strong><small>{student.studentNumber}</small></span><StatusDot status={student.status} /></button>)}</div>
@@ -250,7 +275,7 @@ function StudentReport({ session, student, onApprove }) {
       <section className="workspace-review-panel" aria-label="Review student's background evidence">
         <div className="evidence-heading"><div><h4>Review background before admission</h4><span>Check the submitted walkthrough and all three still images before deciding.</span></div><span className="evidence-count">{student.precheckShots?.length || 0} images{student.precheckVideo ? " · video" : ""}</span></div>
         {student.precheckVideo?.dataUrl ? <div className="precheck-video-review"><video controls preload="metadata" playsInline src={student.precheckVideo.dataUrl}/><span>Student's short background walkthrough · use playback controls to inspect the full clip.</span></div> : <div className="no-evidence"><Webcam size={18}/> Student video has not been submitted.</div>}
-        {student.precheckSummary && <div className="cv-summary"><strong>On-device face-cue summary</strong><span>{student.precheckSummary.faceFrames ?? 0} sampled checks · {student.precheckSummary.maxFaces ?? 0} maximum faces detected · {student.precheckSummary.positionChanges ?? 0} face-position changes. Approximate cues only; they do not determine room compliance.</span></div>}
+        {student.precheckSummary && <div className="cv-summary"><strong>On-device face-cue summary</strong><span>{student.precheckSummary.faceFrames ?? 0} sampled checks · {student.precheckSummary.maxFaces ?? 0} maximum faces detected · {student.precheckSummary.positionChanges ?? 0} face-position changes. Approximate cues only; they do not determine room compliance. After approval, movement/activity cues are logged in the Activity log with suspicious (red) and okay (green) indicators.</span></div>}
         <div className="scan-grid">{student.precheckShots?.length ? student.precheckShots.map((shot) => <div className="scan-shot" key={shot.label}><img src={shot.imageDataUrl} alt={`${shot.label} room scan`} /><span>{shot.label}</span></div>) : <div className="no-evidence"><Webcam size={18} /> Background images have not been submitted.</div>}</div>
         <div className="review-bar"><div className="review-bar-copy"><ShieldCheck size={17}/><span>{student.status === "awaiting-review" ? "Review the evidence and AI-assisted object cues before allowing the quiz to begin." : student.status === "approved" ? "Student has been approved for this session." : student.status === "changes-requested" ? "Retry requested; waiting for the student's updated scan." : "Student is completing their device setup."}</span></div></div>
         {student.status === "awaiting-review" && <ReviewDecision key={student.id} student={student} onDecide={onApprove}/>}
@@ -442,7 +467,11 @@ function LiveFeeds({ sessionId, student }) {
 
 function EventTimeline({ events }) {
   const ordered = [...events].reverse();
-  return <div className="timeline-wrap">{ordered.length ? <div className="timeline">{ordered.map((event) => <div className="timeline-item" key={event.id}><div className={`timeline-icon ${event.type.includes("stop") || event.type.includes("warning") ? "attention" : ""}`}>{event.type.includes("screen") ? <Monitor size={14}/> : event.type.includes("camera") || event.type.includes("scan") ? <Webcam size={14}/> : <Activity size={14}/>}</div><div className="timeline-body"><strong>{eventTitle(event.type)}</strong><p>{event.payload?.message || event.payload?.detail || event.payload?.note || event.type.replaceAll("-", " ")}</p>{event.payload?.imageDataUrl && <img className="event-evidence" src={event.payload.imageDataUrl} alt="Shared-screen snapshot captured at event time"/>}</div><time>{formatTime(event.timestamp)}</time></div>)}</div> : <div className="no-evidence"><Activity size={18}/> No activity has been recorded yet.</div>}</div>;
+  return <div className="timeline-wrap">{ordered.length ? <div className="timeline">{ordered.map((event) => {
+    const severity = eventSeverity(event.type);
+    const severityLabel = severity === "suspicious" ? "Suspicious" : severity === "ok" ? "Okay" : "Info";
+    return <div className={`timeline-item severity-${severity}`} key={event.id}><div className={`timeline-icon ${severity === "suspicious" ? "attention" : severity === "ok" ? "safe" : ""}`}>{event.type.includes("screen") ? <Monitor size={14}/> : event.type.includes("camera") || event.type.includes("scan") ? <Webcam size={14}/> : <Activity size={14}/>}</div><div className="timeline-body"><strong>{eventTitle(event.type)}</strong><span className={`timeline-severity-badge severity-${severity}`}>{severityLabel}</span><p>{event.payload?.message || event.payload?.detail || event.payload?.note || event.type.replaceAll("-", " ")}</p>{event.payload?.imageDataUrl && <img className="event-evidence" src={event.payload.imageDataUrl} alt="Shared-screen snapshot captured at event time"/>}</div><time>{formatTime(event.timestamp)}</time></div>;
+  })}</div> : <div className="no-evidence"><Activity size={18}/> No activity has been recorded yet.</div>}</div>;
 }
 
 function StudentJoin({ sessionId }) {
@@ -570,7 +599,9 @@ function StudentJoin({ sessionId }) {
     if (!student || !cameraStream) return;
     let cancelled = false;
     let stopTracking;
+    const monitoringActive = student.status === "approved";
     const report = (type, payload = {}) => {
+      if (!monitoringActive) return;
       api(`/sessions/${sessionId}/students/${student.id}/events`, {
         method: "POST", body: JSON.stringify({ type, payload })
       }).then(() => setEventCount((count) => count + 1)).catch(() => {});
@@ -591,17 +622,26 @@ function StudentJoin({ sessionId }) {
           setScanAnalysis({ ...scanAnalysisRef.current });
         }
         setFaceMonitor({ state: "movement", count: result.count, detail: "Face position changed" });
-        report(result.kind, {
+        report("movement-suspicious", {
           faceCount: result.count,
           imageDataUrl: captureFrame(screenRef.current, canvasRef.current),
-          message: "Face-position change cue detected; shared-screen snapshot captured for lecturer review.",
-          note: "Coarse on-device face-position change; shared-screen snapshot captured at this instant. Not a behavior or misconduct finding."
+          message: "Sudden face-position change cue detected during the approved session.",
+          note: "Coarse on-device movement cue; shared-screen snapshot captured for lecturer review. This is not a misconduct finding by itself."
         });
       } else if (result.kind === "face-position-settled") {
         setFaceMonitor({ state: "present", count: result.count, detail: "Face position settled" });
+        report("movement-okay", {
+          faceCount: result.count,
+          message: "Face-position cue settled during monitoring.",
+          note: "Automated cue only; used as context in the activity timeline."
+        });
       } else {
         setFaceMonitor({ state: result.kind, count: result.count, detail: result.kind === "face-not-detected" ? "Face not visible across several checks" : result.kind === "multiple-faces-detected" ? "Multiple faces detected across several checks" : "Face visible again" });
-        report(result.kind, { faceCount: result.count, note: "Automated camera cue; may be inaccurate and requires lecturer review." });
+        report(result.kind, {
+          faceCount: result.count,
+          message: result.kind === "face-detected-again" ? "Face detected again in camera view." : result.kind === "face-not-detected" ? "Face not visible in repeated checks." : result.kind === "multiple-faces-detected" ? "Multiple faces detected in repeated checks." : "Camera face cue observed.",
+          note: "Automated camera cue; may be inaccurate and requires lecturer review."
+        });
       }
     }, (state, error) => {
       if (cancelled) return;
@@ -616,7 +656,7 @@ function StudentJoin({ sessionId }) {
     });
 
     return () => { cancelled = true; stopTracking?.(); stopFaceTrackingRef.current = null; };
-  }, [student?.id, sessionId, cameraStream]);
+  }, [student?.id, student?.status, sessionId, cameraStream]);
 
   useEffect(() => {
     if (student?.status === "ended") stopFaceTrackingRef.current?.();
@@ -856,7 +896,7 @@ function StudentJoin({ sessionId }) {
   const isApproved = student.status === "approved";
   return <StudentShell>
     <div className="student-workspace">
-      <div className="student-topline"><a className="student-brand" href="/"><span className="brand-mark"><ShieldCheck size={17}/></span>verity<span className="brand-dot">.</span></a><div className="student-session-tag"><span className={`secure-dot ${isApproved ? "" : "amber-dot"}`}/>{isApproved ? "Proctoring active" : "Pre-assessment check"}</div><button className="student-exit" onClick={endSession}><LogOut size={15}/> Exit</button></div>
+      <div className="student-topline"><a className="student-brand" href="/"><span className="brand-mark"><ShieldCheck size={17}/></span>Proctor Buddy</a><div className="student-session-tag"><span className={`secure-dot ${isApproved ? "" : "amber-dot"}`}/>{isApproved ? "Proctoring active" : "Pre-assessment check"}</div><button className="student-exit" onClick={endSession}><LogOut size={15}/> Exit</button></div>
       <div className="student-main">
         <div className="student-progress"><span className="done"><Check size={12}/> Join</span><i/><span className={student.status !== "setup" ? "done" : "current"}>{student.status !== "setup" ? <Check size={12}/> : "2"} Setup</span><i/><span className={isApproved ? "done" : student.status === "awaiting-review" ? "current" : ""}>{isApproved ? <Check size={12}/> : "3"} Review</span><i/><span className={isApproved ? "current" : ""}>Quiz</span></div>
         {student.status === "ended" ? <div className="awaiting-card"><div className="waiting-icon"><CheckCircle2 size={24}/></div><div className="eyebrow">SESSION CLOSED</div><h1>This assessment has ended</h1><p>Your camera and screen sharing have been stopped. Contact your lecturer if you need help.</p></div> : isApproved ? <div className="approved-view">{error && <div className="form-error student-form-error"><ShieldAlert size={15}/><span>{error}</span><button className="button-secondary" onClick={screenStream ? shareScreen : enableCamera}>{screenStream ? "Share entire screen again" : "Enable webcam"}</button></div>}<div className="approval-success"><div className="success-ring"><CheckCircle2 size={31}/></div><div className="eyebrow">YOU’RE ALL SET</div><h1>Session approved</h1><p>Your lecturer has approved your setup. Keep this tab open and leave screen sharing enabled during your quiz.</p>{student.reviewMessage && <div className="student-review-message"><strong>Message from your lecturer</strong><p>{student.reviewMessage}</p></div>}</div><div className="live-preview-grid"><div className="live-preview-card"><div><Monitor size={15}/> Shared screen <span className="live-label"><i/>LIVE</span></div><video ref={bindScreenVideo} autoPlay playsInline muted /></div><div className="live-preview-card"><div><Video size={15}/> Webcam <span className="live-label"><i/>LIVE</span></div><video ref={bindCameraVideo} autoPlay playsInline muted /></div></div><div className="monitoring-card"><div className="monitoring-symbol"><Activity size={19}/></div><div><strong>Monitoring is active</strong><span>Your lecturer can see the live webcam and full-screen feeds. Approximate face presence/count and coarse face-position checks run locally on your device and are not misconduct findings.</span></div><span className="event-counter">{eventCount} events</span></div><div className="student-quiz-note"><BookOpen size={17}/><span><strong>Ready for your quiz?</strong><br/>Open your quiz in a new tab or window. Keep screen sharing active.</span><ArrowUpRight size={16}/></div><button className="button-secondary full-button end-button" onClick={endSession}>End monitored session</button></div> : student.status === "changes-requested" ? <div className="awaiting-card retry-request-card"><div className="waiting-icon"><RefreshCw size={24}/></div><div className="eyebrow">REVIEW REQUESTED</div><h1>Please update your setup</h1><p>{student.reviewMessage || "Your lecturer has requested another background scan."}</p><button className="button-primary" onClick={retrySetup} disabled={busy}>I’ve addressed this — retry scan<ArrowRight size={16}/></button></div> : student.status === "awaiting-review" ? <div className="awaiting-card"><div className="waiting-icon"><Clock3 size={24}/></div><div className="eyebrow">SETUP SUBMITTED</div><h1>Waiting for your lecturer</h1><p>Your background check has been submitted. Your lecturer will review it before you can start.</p><div className="waiting-progress"><span/><span/><span className="pulse-dot"/></div><small>This page will update automatically after the review.</small></div> : <div className="setup-content">
@@ -872,7 +912,7 @@ function StudentJoin({ sessionId }) {
             <div className="setup-footer"><div><LockKeyhole size={15}/><span>Camera and screen access can be stopped in your browser at any time.</span></div><button className="button-primary" onClick={submitScan} disabled={busy || recordingScan || !cameraStream || !screenStream || !allShots || !scanVideoBlobRef.current}>{busy ? analyzingObjects ? "Analyzing walkthrough…" : "Submitting…" : "Submit setup for review"}<ArrowRight size={16}/></button></div>
           </div>}
            </div>
-      <footer className="student-footer"><span><ShieldCheck size={14}/> Verity · Assessment workspace</span><a href="#" onClick={(event) => { event.preventDefault(); alert("Contact your lecturer for help with this assessment."); }}>Need help?</a></footer><video ref={trackingVideoRef} className="tracking-video" autoPlay playsInline muted/><canvas ref={canvasRef} width="720" height="405" hidden/>
+      <footer className="student-footer"><span><ShieldCheck size={14}/> Proctor Buddy · Assessment workspace</span><a href="#" onClick={(event) => { event.preventDefault(); alert("Contact your lecturer for help with this assessment."); }}>Need help?</a></footer><video ref={trackingVideoRef} className="tracking-video" autoPlay playsInline muted/><canvas ref={canvasRef} width="720" height="405" hidden/>
     </div>
   </StudentShell>;
 }
@@ -885,7 +925,14 @@ function StatusPill({ status }) {
 }
 function StatusDot({ status }) { return <span className={`status-dot ${status === "awaiting-review" ? "needs" : status === "approved" ? "approved" : ""}`} title={statusLabel(status)} />; }
 function initials(name = "") { return name.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase(); }
-function eventTitle(type) { return ({ "assessment-monitoring-started": "Monitoring started", "monitoring-heartbeat": "Session active", "screen-sharing-stopped": "Screen sharing stopped", "session-tab-hidden": "Proctoring tab changed", "background-scan-submitted": "Background scan submitted", "student-approved": "Student approved", "approval-withheld": "Review held", "student-ended-session": "Session ended", "face-count-observed": "On-device face count", "face-position-change": "Face position changed", "face-not-detected": "Face not visible", "multiple-faces-detected": "Multiple faces detected" }[type] || type.replaceAll("-", " ").replace(/^\w/, (letter) => letter.toUpperCase())); }
+function eventSeverity(type) {
+  const suspicious = new Set(["movement-suspicious", "face-not-detected", "multiple-faces-detected", "screen-sharing-stopped", "session-tab-hidden", "webcam-feed-stopped", "face-tracking-unavailable"]);
+  const okay = new Set(["assessment-monitoring-started", "monitoring-heartbeat", "movement-okay", "face-detected-again", "student-approved", "full-screen-sharing-started", "webcam-enabled"]);
+  if (suspicious.has(type)) return "suspicious";
+  if (okay.has(type)) return "ok";
+  return "info";
+}
+function eventTitle(type) { return ({ "assessment-monitoring-started": "Monitoring started", "monitoring-heartbeat": "Session active", "screen-sharing-stopped": "Screen sharing stopped", "session-tab-hidden": "Proctoring tab changed", "background-scan-submitted": "Background scan submitted", "student-approved": "Student approved", "scan-changes-requested": "Retry requested", "student-ended-session": "Session ended", "face-count-observed": "On-device face count", "face-not-detected": "Face not visible", "multiple-faces-detected": "Multiple faces detected", "face-detected-again": "Face visible again", "movement-suspicious": "Movement cue flagged", "movement-okay": "Movement cue settled", "webcam-enabled": "Webcam enabled", "webcam-feed-stopped": "Webcam feed stopped", "full-screen-sharing-started": "Full-screen sharing started", "face-tracking-unavailable": "Face tracking unavailable" }[type] || type.replaceAll("-", " ").replace(/^\w/, (letter) => letter.toUpperCase())); }
 function captureFrame(video, canvas) {
   if (!video || !canvas || !video.videoWidth) return null;
   const context = canvas.getContext("2d");

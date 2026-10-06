@@ -6,6 +6,7 @@ import "./monitoring.css";
 import "./live-monitoring.css";
 import "./invite.css";
 import "./lecturer-review.css";
+import "./movement-log.css";
 
 createRoot(document.getElementById("root")).render(
   <React.StrictMode>

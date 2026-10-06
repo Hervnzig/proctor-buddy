@@ -1,4 +1,4 @@
-# Verity — web-based proctoring MVP
+# Proctor Buddy — web-based proctoring MVP
 
 Standalone React web app for lecturer-led quiz sessions. No browser extension is required.
 
