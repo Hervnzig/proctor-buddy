@@ -1,0 +1,1 @@
+.main-area{position:relative}.topbar{position:sticky;top:0;z-index:30;background:#fff;box-shadow:0 1px 0 #ecefea}.sidebar-toggle-button{position:relative;z-index:31}@supports (backdrop-filter: blur(6px)){.topbar{background:#fffffff2;backdrop-filter:blur(6px)}}

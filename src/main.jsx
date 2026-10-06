@@ -8,6 +8,7 @@ import "./invite.css";
 import "./lecturer-review.css";
 import "./movement-log.css";
 import "./sidebar-toggle.css";
+import "./fixed-topbar.css";
 
 createRoot(document.getElementById("root")).render(
   <React.StrictMode>
