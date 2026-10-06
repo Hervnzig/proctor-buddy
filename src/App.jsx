@@ -3,7 +3,7 @@ import {
   Activity, ArrowDownLeft, ArrowLeft, ArrowRight, ArrowUpRight, Bell, BookOpen,
   Check, CheckCircle2, ChevronDown, CircleHelp, Clock3, Copy, ExternalLink,
   Eye, FileText, Fingerprint, GraduationCap, Grid2X2, Laptop, Link2, LockKeyhole,
-  LogOut, Maximize2, Monitor, MoreHorizontal, Plus, Radio, RefreshCw, Search, Shield,
+  LogOut, Maximize2, Menu, Monitor, MoreHorizontal, Plus, Radio, RefreshCw, Search, Shield,
   ShieldCheck, ShieldAlert, Sparkles, UserRound, Users, Video, Webcam, X
 } from "lucide-react";
 import { startFaceTracking } from "./faceTracker.js";
@@ -66,6 +66,7 @@ function LecturerDashboard() {
   const [session, setSession] = useState(null);
   const sessionRef = useRef(null);
   const [showCreate, setShowCreate] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState("");
@@ -155,7 +156,7 @@ function LecturerDashboard() {
   }
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
       <aside className="sidebar">
         <div className="brand"><div className="brand-mark"><ShieldCheck size={19} /></div><span>Proctor Buddy</span><span className="brand-tag">ASSESS</span></div>
         <div className="workspace-label">WORKSPACE</div>
@@ -169,7 +170,7 @@ function LecturerDashboard() {
       </aside>
 
       <main className="main-area">
-        <header className="topbar"><div className="breadcrumbs"><span>Workspace</span><span className="crumb-slash">/</span><strong>Overview</strong></div><div className="topbar-actions"><div className="secure-pill"><span className="secure-dot" /> Secure workspace</div><button className="icon-button" aria-label="Notifications" onClick={() => setToast("You’re all caught up.")}><Bell size={18} /><i /></button><div className="avatar lecturer-avatar small">LC</div></div></header>
+        <header className="topbar"><div className="breadcrumbs"><button className="sidebar-toggle-button" aria-label={sidebarCollapsed ? "Expand navigation" : "Collapse navigation"} aria-expanded={!sidebarCollapsed} onClick={() => setSidebarCollapsed((current) => !current)}><Menu size={17} /></button><span>Workspace</span><span className="crumb-slash">/</span><strong>Overview</strong></div><div className="topbar-actions"><div className="secure-pill"><span className="secure-dot" /> Secure workspace</div><button className="icon-button" aria-label="Notifications" onClick={() => setToast("You’re all caught up.")}><Bell size={18} /><i /></button><div className="avatar lecturer-avatar small">LC</div></div></header>
         <div className="page-content">
           <div className="welcome-row"><div><div className="eyebrow"><Sparkles size={13} /> YOUR ASSESSMENT SPACE</div><h1>Good morning, Herve <span className="wave">✳</span></h1><p className="subhead">A clear view of your assessments and the students in them.</p></div><button className="button-primary" onClick={() => setShowCreate(true)}><Plus size={17} /> New assessment</button></div>
 

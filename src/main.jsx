@@ -7,6 +7,7 @@ import "./live-monitoring.css";
 import "./invite.css";
 import "./lecturer-review.css";
 import "./movement-log.css";
+import "./sidebar-toggle.css";
 
 createRoot(document.getElementById("root")).render(
   <React.StrictMode>
