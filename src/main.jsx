@@ -9,6 +9,7 @@ import "./lecturer-review.css";
 import "./movement-log.css";
 import "./sidebar-toggle.css";
 import "./fixed-topbar.css";
+import "./workspace-pages.css";
 
 createRoot(document.getElementById("root")).render(
   <React.StrictMode>

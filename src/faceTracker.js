@@ -29,6 +29,7 @@ export async function startFaceTracking(video, onChange, onStatus) {
   let movingFrames = 0;
   let stillFrames = 0;
   let movementReported = false;
+  let lastEyeHeadZone = "center";
   const minimumFrames = 3;
   const movementThreshold = 0.065;
   const movementCueCooldown = 10000;
@@ -54,6 +55,19 @@ export async function startFaceTracking(video, onChange, onStatus) {
           x: (box.originX + box.width / 2) / video.videoWidth,
           y: (box.originY + box.height / 2) / video.videoHeight
         };
+        const eyeHeadZone = center.x < 0.32
+          ? "left"
+          : center.x > 0.68
+            ? "right"
+            : center.y < 0.3
+              ? "up"
+              : center.y > 0.72
+                ? "down"
+                : "center";
+        if (eyeHeadZone !== lastEyeHeadZone) {
+          lastEyeHeadZone = eyeHeadZone;
+          onChange({ kind: "eye-head-zone", count, zone: eyeHeadZone, centerX: center.x, centerY: center.y, stable: true });
+        }
         if (previousFaceCenter) {
           const distance = Math.hypot(center.x - previousFaceCenter.x, center.y - previousFaceCenter.y);
           movingFrames = distance >= movementThreshold ? movingFrames + 1 : 0;
@@ -72,6 +86,7 @@ export async function startFaceTracking(video, onChange, onStatus) {
         previousFaceCenter = null;
         movingFrames = 0;
         stillFrames = 0;
+        lastEyeHeadZone = "center";
       }
 
       if (count !== previousCount) {

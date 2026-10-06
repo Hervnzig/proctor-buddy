@@ -19,6 +19,8 @@ const app = express();
 const PORT = process.env.PORT || 4310;
 const VITE_PORT = process.env.VITE_PORT || 5173;
 
+app.set("etag", false);
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -28,6 +30,13 @@ app.use(express.json({ limit: "12mb" }));
 
 app.use((request, response, next) => {
   response.header("Access-Control-Allow-Origin", `http://localhost:${VITE_PORT}`);
+  next();
+});
+
+app.use("/api", (request, response, next) => {
+  response.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  response.set("Pragma", "no-cache");
+  response.set("Expires", "0");
   next();
 });
 

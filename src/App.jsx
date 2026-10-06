@@ -3,7 +3,7 @@ import {
   Activity, ArrowDownLeft, ArrowLeft, ArrowRight, ArrowUpRight, Bell, BookOpen,
   Check, CheckCircle2, ChevronDown, CircleHelp, Clock3, Copy, ExternalLink,
   Eye, FileText, Fingerprint, GraduationCap, Grid2X2, Laptop, Link2, LockKeyhole,
-  LogOut, Maximize2, Menu, Monitor, MoreHorizontal, Plus, Radio, RefreshCw, Search, Shield,
+  LogOut, Maximize2, Menu, Monitor, Moon, MoreHorizontal, Plus, Radio, RefreshCw, Search, Shield,
   ShieldCheck, ShieldAlert, Sparkles, UserRound, Users, Video, Webcam, X
 } from "lucide-react";
 import { startFaceTracking } from "./faceTracker.js";
@@ -65,9 +65,17 @@ function LecturerDashboard() {
   const [selectedId, setSelectedId] = useState(null);
   const [session, setSession] = useState(null);
   const sessionRef = useRef(null);
+  const [activePage, setActivePage] = useState("overview");
   const [showCreate, setShowCreate] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [search, setSearch] = useState("");
+  const [theme, setTheme] = useState(() => localStorage.getItem("proctor-buddy-theme") || "light");
+  const [permissions, setPermissions] = useState({
+    viewLiveFeeds: true,
+    exportReports: true,
+    approveStudents: true,
+    requestRetry: true
+  });
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState("");
   const [copyFailed, setCopyFailed] = useState(false);
@@ -92,14 +100,30 @@ function LecturerDashboard() {
       setLoading(false);
     }
   }, [selectedId]);
-            useEffect(() => { refresh(true); const timer = setInterval(() => refresh(false), 3000); return () => clearInterval(timer); }, [refresh]);
   useEffect(() => { refresh(true); const timer = setInterval(() => refresh(false), 3000); return () => clearInterval(timer); }, [refresh]);
   useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(""), 3200); return () => clearTimeout(timer); }, [toast]);
+  useEffect(() => {
+    document.body.classList.toggle("theme-dark", theme === "dark");
+    localStorage.setItem("proctor-buddy-theme", theme);
+  }, [theme]);
 
-  const filtered = sessions.filter((item) => `${item.title} ${item.lecturerName}`.toLowerCase().includes(search.toLowerCase()));
+  const filtered = sessions.filter((item) => {
+    const reportIndex = [
+      item.title,
+      item.lecturerName,
+      ...(item.students || []).map((student) => `${student.studentName} ${student.studentNumber} ${(student.events || []).length} ${student.status}`)
+    ].join(" ").toLowerCase();
+    return reportIndex.includes(search.toLowerCase());
+  });
   const students = session?.students || [];
   const needsReview = students.filter((student) => student.status === "awaiting-review").length;
   const active = students.filter((student) => student.status === "approved").length;
+  const pageLabel = ({
+    overview: "Overview",
+    "live-sessions": "Live sessions",
+    settings: "Settings",
+    profile: "Profile"
+  }[activePage] || "Overview");
 
   async function createSession(data) {
     const created = await api("/sessions", { method: "POST", body: JSON.stringify(data) });
@@ -123,6 +147,10 @@ function LecturerDashboard() {
   }
 
   async function approveStudent(studentId, approved, message, review) {
+    if (!permissions.approveStudents || (!approved && !permissions.requestRetry)) {
+      setToast("Your current permission settings do not allow this review action.");
+      return;
+    }
     await api(`/sessions/${session.id}/students/${studentId}/approval`, {
       method: "PATCH", body: JSON.stringify({ approved, reviewer: "Learning Coach", message, ...review })
     });
@@ -160,37 +188,48 @@ function LecturerDashboard() {
       <aside className="sidebar">
         <div className="brand"><div className="brand-mark"><ShieldCheck size={19} /></div><span>Proctor Buddy</span><span className="brand-tag">ASSESS</span></div>
         <div className="workspace-label">WORKSPACE</div>
-        <button className="nav-item active"><Grid2X2 size={17} /> Overview</button>
-        <button className="nav-item" onClick={() => setShowCreate(true)}><Radio size={17} /> Live sessions <span className="nav-count">{sessions.length}</span></button>
-        <button className="nav-item" onClick={() => setToast("Reports are available within each session.")}><FileText size={17} /> Reports</button>
+        <button className={`nav-item ${activePage === "overview" ? "active" : ""}`} onClick={() => setActivePage("overview")}><Grid2X2 size={17} /> Overview</button>
+        <button className={`nav-item ${activePage === "live-sessions" ? "active" : ""}`} onClick={() => setActivePage("live-sessions")}><Radio size={17} /> Live sessions <span className="nav-count">{sessions.length}</span></button>
+        <button className={`nav-item ${activePage === "settings" ? "active" : ""}`} onClick={() => setActivePage("settings")}><Shield size={17} /> Settings</button>
         <div className="sidebar-bottom">
           <div className="help-card"><div className="help-icon"><CircleHelp size={17} /></div><strong>Need a hand?</strong><span>Visit the proctor guide</span><ArrowUpRight size={15} /></div>
-          <div className="profile"><div className="avatar lecturer-avatar">LC</div><div className="profile-copy"><strong>Learning Coach</strong><span>Lecturer account</span></div><MoreHorizontal size={18} /></div>
+          <div className={`profile profile-button ${activePage === "profile" ? "profile-active" : ""}`} role="button" tabIndex={0} onClick={() => setActivePage("profile")} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setActivePage("profile"); } }}><div className="avatar lecturer-avatar">LC</div><div className="profile-copy"><strong>Learning Coach</strong><span>Lecturer account</span></div><MoreHorizontal size={18} /></div>
         </div>
       </aside>
 
       <main className="main-area">
-        <header className="topbar"><div className="breadcrumbs"><button className="sidebar-toggle-button" aria-label={sidebarCollapsed ? "Expand navigation" : "Collapse navigation"} aria-expanded={!sidebarCollapsed} onClick={() => setSidebarCollapsed((current) => !current)}><Menu size={17} /></button><span>Workspace</span><span className="crumb-slash">/</span><strong>Overview</strong></div><div className="topbar-actions"><div className="secure-pill"><span className="secure-dot" /> Secure workspace</div><button className="icon-button" aria-label="Notifications" onClick={() => setToast("You’re all caught up.")}><Bell size={18} /><i /></button><div className="avatar lecturer-avatar small">LC</div></div></header>
+        <header className="topbar"><div className="breadcrumbs"><button className="sidebar-toggle-button" aria-label={sidebarCollapsed ? "Expand navigation" : "Collapse navigation"} aria-expanded={!sidebarCollapsed} onClick={() => setSidebarCollapsed((current) => !current)}><Menu size={17} /></button><span>Workspace</span><span className="crumb-slash">/</span><strong>{pageLabel}</strong></div><div className="topbar-actions"><div className="secure-pill"><span className="secure-dot" /> Secure workspace</div><button className="icon-button" aria-label="Notifications" onClick={() => setToast("You’re all caught up.")}><Bell size={18} /><i /></button><div className="avatar lecturer-avatar small">LC</div></div></header>
         <div className="page-content">
-          <div className="welcome-row"><div><div className="eyebrow"><Sparkles size={13} /> YOUR ASSESSMENT SPACE</div><h1>Good morning, Herve <span className="wave">✳</span></h1><p className="subhead">A clear view of your assessments and the students in them.</p></div><button className="button-primary" onClick={() => setShowCreate(true)}><Plus size={17} /> New assessment</button></div>
+          {activePage === "overview" && <>
+            <div className="welcome-row"><div><div className="eyebrow"><Sparkles size={13} /> YOUR ASSESSMENT SPACE</div><h1>Good morning, Herve <span className="wave">✳</span></h1><p className="subhead">A clear view of your assessments and the students in them.</p></div><button className="button-primary" onClick={() => setShowCreate(true)}><Plus size={17} /> New assessment</button></div>
+            <section className="metric-grid">
+              <Metric label="Live assessments" value={sessions.filter((item) => item.status === "live").length} note="Across your workspace" icon={<Radio size={17} />} accent="green" />
+              <Metric label="Students in progress" value={active} note="Currently approved" icon={<Users size={17} />} accent="blue" />
+              <Metric label="Awaiting your review" value={needsReview} note={needsReview ? "Action recommended" : "Nothing needs attention"} icon={<ShieldAlert size={17} />} accent={needsReview ? "amber" : "lilac"} />
+            </section>
+            <section className="workspace-overview-grid">
+              <div className="overview-card"><strong>Quick actions</strong><button className="button-secondary" onClick={() => setActivePage("live-sessions")}><Radio size={14}/> Open live sessions</button><button className="button-secondary" onClick={() => setShowCreate(true)}><Plus size={14}/> Create assessment</button><button className="button-secondary" onClick={() => setActivePage("settings")}><Shield size={14}/> Open settings</button></div>
+              <div className="overview-card"><strong>Workspace status</strong><p>{sessions.length} total session{sessions.length === 1 ? "" : "s"} available. Use Live sessions to search assessments and report activity by student.</p></div>
+            </section>
+          </>}
 
-          <section className="metric-grid">
-            <Metric label="Live assessments" value={sessions.filter((item) => item.status === "live").length} note="Across your workspace" icon={<Radio size={17} />} accent="green" />
-            <Metric label="Students in progress" value={active} note="Currently approved" icon={<Users size={17} />} accent="blue" />
-            <Metric label="Awaiting your review" value={needsReview} note={needsReview ? "Action recommended" : "Nothing needs attention"} icon={<ShieldAlert size={17} />} accent={needsReview ? "amber" : "lilac"} />
-          </section>
+          {activePage === "live-sessions" && <>
+            <section className="session-section">
+              <div className="section-heading"><div><h2>All sessions and reports</h2><p>Search assessments and report activity across every session.</p></div><button className="button-secondary" onClick={refresh}><RefreshCw size={15} /> Refresh</button></div>
+              <div className="session-tabs"><button className="tab active">All sessions <span>{sessions.length}</span></button><button className="tab" onClick={() => setToast("Use search to find report activity by student or session.")}>Reports included</button><div className="table-search"><Search size={15} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search sessions, students, or reports" /></div></div>
+              <div className="session-table-wrap">
+                <table className="session-table"><thead><tr><th>ASSESSMENT</th><th>STATUS</th><th>STUDENTS</th><th>REPORT EVENTS</th><th>STARTED</th><th /></tr></thead>
+                  <tbody>{loading ? <tr><td colSpan="6" className="empty-row">Loading sessions…</td></tr> : filtered.length ? filtered.map((item) => <tr className={selectedId === item.id ? "selected-row" : ""} key={item.id} onClick={() => selectSession(item.id)}><td><div className="assessment-cell"><div className="assessment-icon"><BookOpen size={17} /></div><div><strong>{item.title}</strong><span>Hosted by {item.lecturerName}</span></div></div></td><td><StatusPill status={item.status} /></td><td><div className="student-stack">{(item.students || []).slice(0, 3).map((student, index) => <div className={`avatar student-avatar color-${index % 4}`} key={student.id}>{initials(student.studentName)}</div>)}<span>{item.students?.length || 0} joined</span></div></td><td className="time-cell">{(item.students || []).reduce((total, student) => total + (student.events?.length || 0), 0)}</td><td className="time-cell">{formatTime(item.createdAt)}</td><td><button className="row-arrow" aria-label="Select session"><ArrowRight size={16} /></button></td></tr>) : <tr><td colSpan="6" className="empty-row"><div className="empty-state"><div className="empty-icon"><BookOpen size={22} /></div><strong>No matching sessions</strong><span>Try a broader report search term.</span></div></td></tr>}</tbody>
+                </table>
+              </div>
+            </section>
+            {session && <SessionDetail session={session} onCopy={copyJoinLink} joinLink={`${location.origin}/?join=${session.id}`} copyFailed={copyFailed} onApprove={approveStudent} onRefresh={refresh} onEnd={endAssessment} permissions={permissions} />}
+          </>}
 
-          <section className="session-section">
-            <div className="section-heading"><div><h2>Assessment sessions</h2><p>Manage live proctoring and review session activity.</p></div><button className="button-secondary" onClick={refresh}><RefreshCw size={15} /> Refresh</button></div>
-            <div className="session-tabs"><button className="tab active">All sessions <span>{sessions.length}</span></button><button className="tab" onClick={() => setToast("Live sessions are shown in the session list.")}>Live</button><button className="tab" onClick={() => setToast("Reports are available when you select a session.")}>Recent reports</button><div className="table-search"><Search size={15} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Find an assessment" /></div></div>
-            <div className="session-table-wrap">
-              <table className="session-table"><thead><tr><th>ASSESSMENT</th><th>STATUS</th><th>STUDENTS</th><th>NEEDS REVIEW</th><th>STARTED</th><th /></tr></thead>
-                <tbody>{loading ? <tr><td colSpan="6" className="empty-row">Loading sessions…</td></tr> : filtered.length ? filtered.map((item) => <tr className={selectedId === item.id ? "selected-row" : ""} key={item.id} onClick={() => selectSession(item.id)}><td><div className="assessment-cell"><div className="assessment-icon"><BookOpen size={17} /></div><div><strong>{item.title}</strong><span>Hosted by {item.lecturerName}</span></div></div></td><td><StatusPill status={item.status} /></td><td><div className="student-stack">{(item.students || []).slice(0, 3).map((student, index) => <div className={`avatar student-avatar color-${index % 4}`} key={student.id}>{initials(student.studentName)}</div>)}<span>{item.students?.length || 0} joined</span></div></td><td><span className={item.students?.some((student) => student.status === "awaiting-review") ? "review-count has-review" : "review-count"}>{item.students?.filter((student) => student.status === "awaiting-review").length || 0}</span></td><td className="time-cell">{formatTime(item.createdAt)}</td><td><button className="row-arrow" aria-label="Select session"><ArrowRight size={16} /></button></td></tr>) : <tr><td colSpan="6" className="empty-row"><div className="empty-state"><div className="empty-icon"><BookOpen size={22} /></div><strong>No assessment sessions yet</strong><span>Create your first session and share its student join link.</span><button className="button-primary" onClick={() => setShowCreate(true)}><Plus size={16} /> Create session</button></div></td></tr>}</tbody>
-              </table>
-            </div>
-          </section>
+          {activePage === "settings" && <SettingsPanel theme={theme} setTheme={setTheme} permissions={permissions} setPermissions={setPermissions} />}
 
-          {session && <SessionDetail session={session} onCopy={copyJoinLink} joinLink={`${location.origin}/?join=${session.id}`} copyFailed={copyFailed} onApprove={approveStudent} onRefresh={refresh} onEnd={endAssessment} />}
+          {activePage === "profile" && <ProfilePanel />}
+
           <footer className="page-footer"><span><LockKeyhole size={13} /> Student permission is always required for camera and screen access.</span><span>Proctor Buddy MVP <span className="footer-sep">·</span> Local prototype</span></footer>
         </div>
       </main>
@@ -202,6 +241,15 @@ function LecturerDashboard() {
 
 function Metric({ label, value, note, icon, accent }) {
   return <div className="metric-card"><div className={`metric-icon ${accent}`}>{icon}</div><div className="metric-label">{label}</div><div className="metric-bottom"><strong>{value}</strong><span>{note}</span></div></div>;
+}
+
+function SettingsPanel({ theme, setTheme, permissions, setPermissions }) {
+  const toggle = (key) => setPermissions((current) => ({ ...current, [key]: !current[key] }));
+  return <section className="settings-panel"><div className="section-heading"><div><h2>Settings</h2><p>Theme, permissions, and workspace rights.</p></div></div><div className="settings-grid"><div className="settings-card"><h3>Appearance</h3><p>Choose how your workspace looks.</p><div className="theme-toggle-row"><button className={`button-secondary ${theme === "light" ? "selected-theme" : ""}`} onClick={() => setTheme("light")}><Sparkles size={14}/> Light mode</button><button className={`button-secondary ${theme === "dark" ? "selected-theme" : ""}`} onClick={() => setTheme("dark")}><Moon size={14}/> Dark mode</button></div></div><div className="settings-card"><h3>Permission settings</h3><p>Control what this lecturer workspace can do.</p><label className="switch-row"><input type="checkbox" checked={permissions.viewLiveFeeds} onChange={() => toggle("viewLiveFeeds")} /><span>Allow live-feed viewing rights</span></label><label className="switch-row"><input type="checkbox" checked={permissions.exportReports} onChange={() => toggle("exportReports")} /><span>Allow exporting report files</span></label><label className="switch-row"><input type="checkbox" checked={permissions.approveStudents} onChange={() => toggle("approveStudents")} /><span>Allow approving students into quizzes</span></label><label className="switch-row"><input type="checkbox" checked={permissions.requestRetry} onChange={() => toggle("requestRetry")} /><span>Allow retry requests with custom guidance</span></label></div><div className="settings-card"><h3>Rights summary</h3><p>Current role: Learning Coach</p><ul className="rights-list"><li><ShieldCheck size={13}/> Manage assessment sessions</li><li><ShieldCheck size={13}/> Review setup evidence and approve/retry</li><li><ShieldCheck size={13}/> Access monitoring metrics and logs</li><li><ShieldCheck size={13}/> Export session and movement reports</li></ul></div></div></section>;
+}
+
+function ProfilePanel() {
+  return <section className="settings-panel"><div className="section-heading"><div><h2>Profile</h2><p>About this lecturer account.</p></div></div><div className="profile-page-card"><div className="avatar lecturer-avatar large">LC</div><h3>Learning Coach</h3><p>Proctor Buddy lecturer workspace owner.</p><div className="profile-about"><strong>About</strong><p>This profile manages live assessments, setup review decisions, monitoring oversight, and reporting access for students in active sessions.</p></div></div></section>;
 }
 
 function CreateSessionModal({ onClose, onCreate }) {
@@ -217,7 +265,7 @@ function CreateSessionModal({ onClose, onCreate }) {
   return <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><form className="modal-card" onSubmit={submit}><div className="modal-top"><div className="modal-symbol"><Plus size={19} /></div><button type="button" className="icon-button" onClick={onClose}><X size={18} /></button></div><h2>Start an assessment</h2><p>Create a monitored session, then share its private join link with your class.</p><label className="field-label">Assessment name<input autoFocus value={title} onChange={(event) => setTitle(event.target.value)} placeholder="e.g. Biology · Unit 4 quiz" required /></label><label className="field-label">Lecturer name<input value={lecturerName} onChange={(event) => setLecturerName(event.target.value)} required /></label>{error && <div className="form-error">{error}</div>}<div className="modal-foot"><span><Shield size={14} /> Students choose to enable each device.</span><button className="button-primary" disabled={busy}>{busy ? "Creating…" : "Create session"}<ArrowRight size={16} /></button></div></form></div>;
 }
 
-function SessionDetail({ session, onCopy, onApprove, onRefresh, onEnd, joinLink, copyFailed }) {
+function SessionDetail({ session, onCopy, onApprove, onRefresh, onEnd, joinLink, copyFailed, permissions }) {
   const students = session.students || [];
   const [selectedStudentId, setSelectedStudentId] = useState(students[0]?.id || null);
   const selected = students.find((student) => student.id === selectedStudentId) || students[0] || null;
@@ -260,15 +308,15 @@ function SessionDetail({ session, onCopy, onApprove, onRefresh, onEnd, joinLink,
     link.click();
     URL.revokeObjectURL(url);
   }
-  return <section className="detail-section"><div className="section-heading detail-heading"><div><div className="eyebrow"><Radio size={12} /> {session.status === "live" ? "LIVE SESSION" : "COMPLETED SESSION"}</div><h2>{session.title}</h2><p>Started {new Date(session.createdAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })} <span className="bullet">·</span> {students.length} student{students.length === 1 ? "" : "s"} joined</p></div><div className="detail-actions">{session.status === "live" && <button className="button-secondary" onClick={onEnd}><X size={14} /> End assessment</button>}<button className="button-secondary" onClick={downloadReport}><FileText size={14} /> Export report</button>{selected && <button className="button-secondary" onClick={downloadMovementLog}><Activity size={14} /> Export movement log</button>}<button className="button-secondary" onClick={onCopy}><Link2 size={15} /> Copy join link</button><button className="button-primary compact" onClick={() => onRefresh(true)}><RefreshCw size={15} /> Update</button></div></div>
+  return <section className="detail-section"><div className="section-heading detail-heading"><div><div className="eyebrow"><Radio size={12} /> {session.status === "live" ? "LIVE SESSION" : "COMPLETED SESSION"}</div><h2>{session.title}</h2><p>Started {new Date(session.createdAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })} <span className="bullet">·</span> {students.length} student{students.length === 1 ? "" : "s"} joined</p></div><div className="detail-actions">{session.status === "live" && <button className="button-secondary" onClick={onEnd}><X size={14} /> End assessment</button>}<button className="button-secondary" onClick={downloadReport} disabled={!permissions.exportReports}><FileText size={14} /> Export report</button>{selected && <button className="button-secondary" onClick={downloadMovementLog} disabled={!permissions.exportReports}><Activity size={14} /> Export movement log</button>}<button className="button-secondary" onClick={onCopy}><Link2 size={15} /> Copy join link</button><button className="button-primary compact" onClick={() => onRefresh(true)}><RefreshCw size={15} /> Update</button></div></div>
     <div className="join-banner"><div className="join-banner-icon"><Link2 size={18} /></div><div><strong>Invite students to join</strong><span>Anyone with this link can request access to this assessment.</span></div><button onClick={onCopy}><Copy size={15} /> Copy invite link</button></div>
     {copyFailed && <div className="manual-link-row"><label htmlFor="student-invite-link">Copy this student link manually</label><input id="student-invite-link" readOnly value={joinLink} onFocus={(event) => event.target.select()} onClick={(event) => event.target.select()} /><button className="button-secondary" onClick={() => { const field = document.getElementById("student-invite-link"); field?.focus(); field?.select(); }}>Select link</button></div>}
     {!students.length ? <div className="session-empty"><div className="empty-icon"><Users size={21} /></div><strong>Waiting for students to join</strong><span>Share the link above. Each student will have a separate review and activity log.</span></div> : <div className="detail-content"><div className="student-list"><div className="list-title">STUDENT SESSIONS <span>{students.length}</span></div>{students.map((student, index) => <button key={student.id} className={`student-list-item ${selected?.id === student.id ? "chosen" : ""}`} onClick={() => setSelectedStudentId(student.id)}><div className={`avatar student-avatar color-${index % 4}`}>{initials(student.studentName)}</div><span className="student-list-copy"><strong>{student.studentName}</strong><small>{student.studentNumber}</small></span><StatusDot status={student.status} /></button>)}</div>
-      {selected ? <StudentReport session={session} student={selected} onApprove={onApprove} /> : null}</div>}
+      {selected ? <StudentReport session={session} student={selected} onApprove={onApprove} permissions={permissions} /> : null}</div>}
   </section>;
 }
 
-function StudentReport({ session, student, onApprove }) {
+    function StudentReport({ session, student, onApprove, permissions }) {
   const [activeTab, setActiveTab] = useState("Overview");
   return <div className="report-panel"><div className="report-person"><div><div className="report-heading"><div className="avatar student-avatar color-2 large">{initials(student.studentName)}</div><div><h3>{student.studentName}</h3><span>{student.studentNumber} <span className="bullet">·</span> Joined {formatTime(student.joinedAt)}</span></div></div></div><StatusPill status={student.status} /></div>
     <div className="report-tabs">{["Overview", "Activity log"].map((tab) => <button className={activeTab === tab ? "active" : ""} key={tab} onClick={() => setActiveTab(tab)}>{tab}{tab === "Activity log" && <span>{student.events?.length || 0}</span>}</button>)}</div>
@@ -279,15 +327,31 @@ function StudentReport({ session, student, onApprove }) {
         {student.precheckSummary && <div className="cv-summary"><strong>On-device face-cue summary</strong><span>{student.precheckSummary.faceFrames ?? 0} sampled checks · {student.precheckSummary.maxFaces ?? 0} maximum faces detected · {student.precheckSummary.positionChanges ?? 0} face-position changes. Approximate cues only; they do not determine room compliance. After approval, movement/activity cues are logged in the Activity log with suspicious (red) and okay (green) indicators.</span></div>}
         <div className="scan-grid">{student.precheckShots?.length ? student.precheckShots.map((shot) => <div className="scan-shot" key={shot.label}><img src={shot.imageDataUrl} alt={`${shot.label} room scan`} /><span>{shot.label}</span></div>) : <div className="no-evidence"><Webcam size={18} /> Background images have not been submitted.</div>}</div>
         <div className="review-bar"><div className="review-bar-copy"><ShieldCheck size={17}/><span>{student.status === "awaiting-review" ? "Review the evidence and AI-assisted object cues before allowing the quiz to begin." : student.status === "approved" ? "Student has been approved for this session." : student.status === "changes-requested" ? "Retry requested; waiting for the student's updated scan." : "Student is completing their device setup."}</span></div></div>
-        {student.status === "awaiting-review" && <ReviewDecision key={student.id} student={student} onDecide={onApprove}/>}
+        {student.status === "awaiting-review" && <ReviewDecision key={student.id} student={student} onDecide={onApprove} permissions={permissions}/>}
         {student.reviewMessage && <div className="review-message-preview"><strong>Last message to student</strong><p>{student.reviewMessage}</p></div>}
       </section>
       <LiveFeeds sessionId={session.id} student={student}/>
+      <RealtimeMonitoringMetrics student={student} />
     </> : <EventTimeline events={student.events || []} />}
   </div>;
 }
 
-function ReviewDecision({ student, onDecide }) {
+function RealtimeMonitoringMetrics({ student }) {
+  const events = student.events || [];
+  const suspicious = events.filter((event) => eventSeverity(event.type) === "suspicious").length;
+  const okay = events.filter((event) => eventSeverity(event.type) === "ok").length;
+  const headMovementFlags = events.filter((event) => event.type === "movement-suspicious").length;
+  const eyeHeadShifts = events.filter((event) => event.type === "eye-head-shift-cue").length;
+  const lowLightFlags = events.filter((event) => event.type === "low-light-warning").length;
+  const screenSwitchCues = events.filter((event) => event.type === "screen-context-switch-cue").length;
+  const proctorTabSwitches = events.filter((event) => event.type === "session-tab-hidden").length;
+  const displayShareStarts = events.filter((event) => event.type === "full-screen-sharing-started").length;
+  const latestLight = [...events].reverse().find((event) => event.type === "ambient-light-sample");
+
+  return <section className="realtime-metrics-panel"><div className="metrics-title"><Activity size={14}/><strong>Real-time monitoring metrics</strong><span>During approved quiz sessions</span></div><div className="metrics-grid"><div className="metric-chip suspicious"><b>{headMovementFlags}</b><span>Head-movement flags</span></div><div className="metric-chip suspicious"><b>{eyeHeadShifts}</b><span>Eye/head shift cues</span></div><div className="metric-chip suspicious"><b>{screenSwitchCues}</b><span>Possible tab/window switches</span></div><div className="metric-chip suspicious"><b>{lowLightFlags}</b><span>Low-light warnings</span></div><div className="metric-chip ok"><b>{displayShareStarts}</b><span>Screen-share starts</span></div><div className="metric-chip ok"><b>{proctorTabSwitches}</b><span>Proctor-tab changes</span></div></div><div className="metrics-summary"><span className="summary-item suspicious">Suspicious: {suspicious}</span><span className="summary-item ok">Okay: {okay}</span><span className="summary-item">Declared display: {student.reportedDisplay || "Not declared"} ({student.reportedDisplayCount || "Unknown count"})</span><span className="summary-item">Latest light sample: {latestLight?.payload?.level != null ? `${Math.round(latestLight.payload.level * 100)}%` : "N/A"}</span></div><small>All cues are approximate and review-assist only; they do not by themselves prove misconduct.</small></section>;
+}
+
+function ReviewDecision({ student, onDecide, permissions }) {
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -296,6 +360,10 @@ function ReviewDecision({ student, onDecide }) {
   const objects = student.precheckSummary?.objectAnalysis?.objects || [];
   const allObjectsConfirmed = objects.every((item) => confirmedObjects.includes(item.label));
   async function decide(approved) {
+    if ((approved && !permissions.approveStudents) || (!approved && !permissions.requestRetry)) {
+      setError("Your current permission settings do not allow this action.");
+      return;
+    }
     if (!reviewedEvidence) {
       setError("Review the submitted video and all three images before making a decision.");
       return;
@@ -326,7 +394,7 @@ function ReviewDecision({ student, onDecide }) {
     </div>
     <label className="evidence-review-confirm"><input type="checkbox" checked={reviewedEvidence} onChange={(event) => setReviewedEvidence(event.target.checked)}/><span>I reviewed the walkthrough video and all submitted background images.</span></label>
     <label className="field-label">Message for student (required for retry)<textarea value={message} onChange={(event) => setMessage(event.target.value)} maxLength={1000} placeholder="e.g. Please pan the camera more slowly and ensure the whole desk is visible." /></label>
-    <div className="review-buttons"><button className="button-secondary" disabled={busy || !reviewedEvidence} onClick={() => decide(false)}>Request changes & retry</button><button className="button-primary compact" disabled={busy || !reviewedEvidence || !allObjectsConfirmed} onClick={() => decide(true)}><Check size={15}/>{busy ? "Saving…" : "Confirm & approve"}</button></div>{error && <div className="form-error">{error}</div>}
+    <div className="review-buttons"><button className="button-secondary" disabled={busy || !reviewedEvidence || !permissions.requestRetry} onClick={() => decide(false)}>Request changes & retry</button><button className="button-primary compact" disabled={busy || !reviewedEvidence || !allObjectsConfirmed || !permissions.approveStudents} onClick={() => decide(true)}><Check size={15}/>{busy ? "Saving…" : "Confirm & approve"}</button></div>{error && <div className="form-error">{error}</div>}
   </div>;
 }
 
@@ -508,6 +576,8 @@ function StudentJoin({ sessionId }) {
   const scanStopTimerRef = useRef(null);
   const scanVideoUrlRef = useRef("");
   const scanVideoBlobRef = useRef(null);
+  const screenShiftRef = useRef({ recent: [], lastReportedAt: 0, previousSignature: null });
+  const lightStateRef = useRef({ low: false, lastSampleAt: 0 });
   const bindCameraVideo = useCallback((node) => {
     cameraRef.current = node;
     attachVideoStream(node, cameraStream);
@@ -636,6 +706,14 @@ function StudentJoin({ sessionId }) {
           message: "Face-position cue settled during monitoring.",
           note: "Automated cue only; used as context in the activity timeline."
         });
+      } else if (result.kind === "eye-head-zone") {
+        setFaceMonitor({ state: result.zone === "center" ? "present" : "movement", count: result.count, detail: result.zone === "center" ? "Eye/head position centered" : `Eye/head orientation cue: ${result.zone}` });
+        report(result.zone === "center" ? "eye-head-centered" : "eye-head-shift-cue", {
+          faceCount: result.count,
+          zone: result.zone,
+          message: result.zone === "center" ? "Eye/head orientation returned to center." : `Eye/head orientation shifted toward ${result.zone}.`,
+          note: "Coarse face-orientation cue from webcam position; may be inaccurate and requires lecturer interpretation."
+        });
       } else {
         setFaceMonitor({ state: result.kind, count: result.count, detail: result.kind === "face-not-detected" ? "Face not visible across several checks" : result.kind === "multiple-faces-detected" ? "Multiple faces detected across several checks" : "Face visible again" });
         report(result.kind, {
@@ -675,6 +753,103 @@ function StudentJoin({ sessionId }) {
     const timer = setInterval(() => record("monitoring-heartbeat", { cameraEnabled: Boolean(cameraStream?.active), screenEnabled: Boolean(screenStream?.active) }), 15000);
     return () => { document.removeEventListener("visibilitychange", onVisibility); clearInterval(timer); };
   }, [student?.id, student?.status, sessionId, cameraStream, screenStream]);
+
+  useEffect(() => {
+    if (!student || student.status !== "approved" || !cameraStream) return;
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    if (!context) return;
+    const record = (type, payload = {}) => {
+      api(`/sessions/${sessionId}/students/${student.id}/events`, { method: "POST", body: JSON.stringify({ type, payload }) }).catch(() => {});
+      setEventCount((count) => count + 1);
+    };
+    const timer = setInterval(() => {
+      const video = trackingVideoRef.current || cameraRef.current;
+      if (!video?.videoWidth || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return;
+      canvas.width = 48;
+      canvas.height = 32;
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const imageData = context.getImageData(0, 0, canvas.width, canvas.height).data;
+      let brightnessTotal = 0;
+      for (let index = 0; index < imageData.length; index += 4) {
+        brightnessTotal += 0.2126 * imageData[index] + 0.7152 * imageData[index + 1] + 0.0722 * imageData[index + 2];
+      }
+      const brightness = brightnessTotal / (canvas.width * canvas.height);
+      const normalized = Number((brightness / 255).toFixed(3));
+      const now = Date.now();
+      if (now - lightStateRef.current.lastSampleAt > 20000) {
+        record("ambient-light-sample", {
+          level: normalized,
+          message: `Ambient light sample ${Math.round(normalized * 100)}%.`,
+          note: "Approximate webcam brightness sample for monitoring context."
+        });
+        lightStateRef.current.lastSampleAt = now;
+      }
+      if (normalized < 0.2 && !lightStateRef.current.low) {
+        lightStateRef.current.low = true;
+        record("low-light-warning", {
+          level: normalized,
+          message: "Low-light cue detected from webcam feed.",
+          note: "Approximate brightness cue; may be affected by camera exposure changes."
+        });
+      }
+      if (normalized >= 0.25 && lightStateRef.current.low) {
+        lightStateRef.current.low = false;
+        record("light-normalized", {
+          level: normalized,
+          message: "Webcam lighting returned to a normal range.",
+          note: "Approximate brightness recovery cue."
+        });
+      }
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [student?.id, student?.status, sessionId, cameraStream]);
+
+  useEffect(() => {
+    if (!student || student.status !== "approved" || !screenStream) return;
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    if (!context) return;
+    const record = (type, payload = {}) => {
+      api(`/sessions/${sessionId}/students/${student.id}/events`, { method: "POST", body: JSON.stringify({ type, payload }) }).catch(() => {});
+      setEventCount((count) => count + 1);
+    };
+    const timer = setInterval(() => {
+      const video = screenRef.current;
+      if (!video?.videoWidth || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return;
+      canvas.width = 36;
+      canvas.height = 24;
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+      const signature = [];
+      for (let row = 0; row < 6; row += 1) {
+        for (let column = 0; column < 6; column += 1) {
+          const x = Math.min(canvas.width - 1, Math.round((column + 0.5) * canvas.width / 6));
+          const y = Math.min(canvas.height - 1, Math.round((row + 0.5) * canvas.height / 6));
+          const offset = (y * canvas.width + x) * 4;
+          signature.push((pixels[offset] + pixels[offset + 1] + pixels[offset + 2]) / 765);
+        }
+      }
+      const previous = screenShiftRef.current.previousSignature;
+      screenShiftRef.current.previousSignature = signature;
+      if (!previous) return;
+      const delta = signature.reduce((sum, value, index) => sum + Math.abs(value - previous[index]), 0) / signature.length;
+      if (delta > 0.26) {
+        const now = Date.now();
+        screenShiftRef.current.recent.push(now);
+        screenShiftRef.current.recent = screenShiftRef.current.recent.filter((stamp) => now - stamp < 20000);
+        if (screenShiftRef.current.recent.length >= 3 && now - screenShiftRef.current.lastReportedAt > 15000) {
+          screenShiftRef.current.lastReportedAt = now;
+          record("screen-context-switch-cue", {
+            delta: Number(delta.toFixed(3)),
+            message: "Rapid screen-content changes detected (possible tab/window switching).",
+            note: "Approximate cue from visual screen-frame shifts; requires lecturer review."
+          });
+        }
+      }
+    }, 3500);
+    return () => clearInterval(timer);
+  }, [student?.id, student?.status, sessionId, screenStream]);
 
   async function join() {
     if (!studentName.trim() || !studentNumber.trim() || !consented) return;
@@ -927,13 +1102,13 @@ function StatusPill({ status }) {
 function StatusDot({ status }) { return <span className={`status-dot ${status === "awaiting-review" ? "needs" : status === "approved" ? "approved" : ""}`} title={statusLabel(status)} />; }
 function initials(name = "") { return name.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase(); }
 function eventSeverity(type) {
-  const suspicious = new Set(["movement-suspicious", "face-not-detected", "multiple-faces-detected", "screen-sharing-stopped", "session-tab-hidden", "webcam-feed-stopped", "face-tracking-unavailable"]);
-  const okay = new Set(["assessment-monitoring-started", "monitoring-heartbeat", "movement-okay", "face-detected-again", "student-approved", "full-screen-sharing-started", "webcam-enabled"]);
+  const suspicious = new Set(["movement-suspicious", "eye-head-shift-cue", "face-not-detected", "multiple-faces-detected", "screen-sharing-stopped", "session-tab-hidden", "webcam-feed-stopped", "face-tracking-unavailable", "low-light-warning", "screen-context-switch-cue"]);
+  const okay = new Set(["assessment-monitoring-started", "monitoring-heartbeat", "movement-okay", "eye-head-centered", "face-detected-again", "student-approved", "full-screen-sharing-started", "webcam-enabled", "light-normalized"]);
   if (suspicious.has(type)) return "suspicious";
   if (okay.has(type)) return "ok";
   return "info";
 }
-function eventTitle(type) { return ({ "assessment-monitoring-started": "Monitoring started", "monitoring-heartbeat": "Session active", "screen-sharing-stopped": "Screen sharing stopped", "session-tab-hidden": "Proctoring tab changed", "background-scan-submitted": "Background scan submitted", "student-approved": "Student approved", "scan-changes-requested": "Retry requested", "student-ended-session": "Session ended", "face-count-observed": "On-device face count", "face-not-detected": "Face not visible", "multiple-faces-detected": "Multiple faces detected", "face-detected-again": "Face visible again", "movement-suspicious": "Movement cue flagged", "movement-okay": "Movement cue settled", "webcam-enabled": "Webcam enabled", "webcam-feed-stopped": "Webcam feed stopped", "full-screen-sharing-started": "Full-screen sharing started", "face-tracking-unavailable": "Face tracking unavailable" }[type] || type.replaceAll("-", " ").replace(/^\w/, (letter) => letter.toUpperCase())); }
+function eventTitle(type) { return ({ "assessment-monitoring-started": "Monitoring started", "monitoring-heartbeat": "Session active", "screen-sharing-stopped": "Screen sharing stopped", "session-tab-hidden": "Proctoring tab changed", "background-scan-submitted": "Background scan submitted", "student-approved": "Student approved", "scan-changes-requested": "Retry requested", "student-ended-session": "Session ended", "face-count-observed": "On-device face count", "face-not-detected": "Face not visible", "multiple-faces-detected": "Multiple faces detected", "face-detected-again": "Face visible again", "movement-suspicious": "Head movement flagged", "movement-okay": "Head movement settled", "eye-head-shift-cue": "Eye/head shift cue", "eye-head-centered": "Eye/head centered", "ambient-light-sample": "Ambient light sample", "low-light-warning": "Low-light warning", "light-normalized": "Lighting normalized", "screen-context-switch-cue": "Possible tab/window switching", "webcam-enabled": "Webcam enabled", "webcam-feed-stopped": "Webcam feed stopped", "full-screen-sharing-started": "Full-screen sharing started", "face-tracking-unavailable": "Face tracking unavailable" }[type] || type.replaceAll("-", " ").replace(/^\w/, (letter) => letter.toUpperCase())); }
 function captureFrame(video, canvas) {
   if (!video || !canvas || !video.videoWidth) return null;
   const context = canvas.getContext("2d");
