@@ -431,12 +431,16 @@ function LiveFeeds({ sessionId, student }) {
     const pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
     const queuedCandidates = [];
     let streamIds = {};
+    let trackIds = {};
     let greetingTimer;
     pc.onicecandidate = (event) => { if (event.candidate && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "candidate", candidate: event.candidate })); };
     pc.ontrack = (event) => {
       const settings = event.track.getSettings();
       const streamId = event.streams[0]?.id;
-      const screenTrack = streamIds.screen === streamId || Boolean(settings.displaySurface) || /screen|display|window|tab/i.test(event.track.label);
+      const screenTrack = trackIds.screen === event.track.id
+        || streamIds.screen === streamId
+        || Boolean(settings.displaySurface)
+        || /screen|display|window|tab|monitor/i.test(event.track.label);
       const mediaStream = event.streams[0];
       event.track.onended = () => {
         if (screenTrack) {
@@ -475,6 +479,7 @@ function LiveFeeds({ sessionId, student }) {
       const message = JSON.parse(data);
       if (message.type === "student-ready") {
         const nextIds = { camera: message.cameraStreamId, screen: message.screenStreamId };
+        trackIds = { camera: message.cameraTrackId, screen: message.screenTrackId };
         const tracksChanged = nextIds.camera !== streamIds.camera || nextIds.screen !== streamIds.screen;
         streamIds = nextIds;
         if (tracksChanged && !receivedStreams.current.screen) setScreenState("Connecting");
@@ -670,7 +675,16 @@ function StudentJoin({ sessionId }) {
     cameraStream?.getTracks().forEach((track) => pc.addTrack(track, cameraStream));
     screenStream?.getTracks().forEach((track) => pc.addTrack(track, screenStream));
     pc.onicecandidate = (event) => { if (event.candidate && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "candidate", candidate: event.candidate })); };
-    const announceStudent = () => { if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "student-ready", cameraStreamId: cameraStream?.id, screenStreamId: screenStream?.id })); };
+    const announceStudent = () => {
+      if (socket.readyState !== WebSocket.OPEN) return;
+      socket.send(JSON.stringify({
+        type: "student-ready",
+        cameraStreamId: cameraStream?.id,
+        screenStreamId: screenStream?.id,
+        cameraTrackId: cameraStream?.getVideoTracks?.()[0]?.id,
+        screenTrackId: screenStream?.getVideoTracks?.()[0]?.id
+      }));
+    };
     const sendOffer = async (iceRestart = false) => {
       if (negotiationRunning || socket.readyState !== WebSocket.OPEN) return;
       negotiationRunning = true;
