@@ -58,11 +58,7 @@ test("lecturer creates a quiz session and student session", async (context) => {
   const precheck = await request(`/api/sessions/${sessionId}/students/${studentId}/precheck`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ shots: [
-      { label: "left", imageDataUrl: "data:image/jpeg;base64,a" },
-      { label: "center", imageDataUrl: "data:image/jpeg;base64,b" },
-      { label: "right", imageDataUrl: "data:image/jpeg;base64,c" }
-    ], video: { dataUrl: "data:video/webm;base64,dmlkZW8=", mimeType: "video/webm" }, summary: { faceFrames: 8, maxFaces: 1, positionChanges: 2, objectAnalysis: { status: "complete", objects: [{ label: "cup", sightings: 2, maxConfidence: 0.8 }] } } })
+    body: JSON.stringify({ video: { dataUrl: "data:video/webm;base64,dmlkZW8=", mimeType: "video/webm" }, summary: { faceFrames: 8, maxFaces: 1, positionChanges: 2, objectAnalysis: { status: "complete", objects: [{ label: "cup", sightings: 2, maxConfidence: 0.8 }] } } })
   });
   assert.equal(precheck.response.status, 200);
   assert.equal(precheck.body.status, "awaiting-review");
@@ -97,11 +93,7 @@ test("lecturer creates a quiz session and student session", async (context) => {
   const resubmitted = await request(`/api/sessions/${sessionId}/students/${studentId}/precheck`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ shots: [
-      { label: "left", imageDataUrl: "data:image/jpeg;base64,a" },
-      { label: "center", imageDataUrl: "data:image/jpeg;base64,b" },
-      { label: "right", imageDataUrl: "data:image/jpeg;base64,c" }
-    ], video: { dataUrl: "data:video/webm;base64,dmlkZW8=", mimeType: "video/webm" }, summary: { objectAnalysis: { status: "complete", objects: [{ label: "cup", sightings: 2, maxConfidence: 0.8 }] } } })
+    body: JSON.stringify({ video: { dataUrl: "data:video/webm;base64,dmlkZW8=", mimeType: "video/webm" }, summary: { objectAnalysis: { status: "complete", objects: [{ label: "cup", sightings: 2, maxConfidence: 0.8 }] } } })
   });
   assert.equal(resubmitted.body.status, "awaiting-review");
 

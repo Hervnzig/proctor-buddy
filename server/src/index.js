@@ -130,11 +130,7 @@ app.patch("/api/sessions/:id/students/:studentId", (request, response) => {
 });
 
 app.post("/api/sessions/:id/students/:studentId/precheck", (request, response) => {
-  const { shots, video, summary } = request.body ?? {};
-  if (!Array.isArray(shots) || shots.length < 3) {
-    response.status(400).json({ error: "three background scan images are required" });
-    return;
-  }
+  const { video, summary } = request.body ?? {};
   if (!video?.dataUrl || typeof video.dataUrl !== "string") {
     response.status(400).json({ error: "a short background-scan video under 3.5 MB is required" });
     return;
@@ -151,7 +147,7 @@ app.post("/api/sessions/:id/students/:studentId/precheck", (request, response) =
     return;
   }
   const student = updateStudent(request.params.id, request.params.studentId, {
-    precheckShots: shots,
+    precheckShots: [],
     precheckVideo: { dataUrl: video.dataUrl, mimeType: video.mimeType, submittedAt: new Date().toISOString() },
     precheckSummary: summary || {},
     reviewMessage: "",
@@ -161,7 +157,7 @@ app.post("/api/sessions/:id/students/:studentId/precheck", (request, response) =
     response.status(404).json({ error: "student or session not found" });
     return;
   }
-  addEvent(request.params.id, request.params.studentId, { type: "background-scan-submitted" });
+  addEvent(request.params.id, request.params.studentId, { type: "background-video-submitted" });
   response.json(student);
 });
 
@@ -176,13 +172,13 @@ app.patch("/api/sessions/:id/students/:studentId/approval", (request, response) 
     return;
   }
   if (reviewedEvidence !== true) {
-    response.status(400).json({ error: "confirm that the submitted video and background images were reviewed" });
+    response.status(400).json({ error: "confirm that the submitted walkthrough video was reviewed" });
     return;
   }
   const currentSession = getSession(request.params.id);
   const currentStudent = currentSession?.students.find((item) => item.id === request.params.studentId);
-  if (!currentStudent || currentStudent.status !== "awaiting-review" || !currentStudent.precheckVideo?.dataUrl || currentStudent.precheckShots?.length < 3) {
-    response.status(409).json({ error: "a submitted video and three images must be awaiting review" });
+  if (!currentStudent || currentStudent.status !== "awaiting-review" || !currentStudent.precheckVideo?.dataUrl) {
+    response.status(409).json({ error: "a submitted video must be awaiting review" });
     return;
   }
   const detectedObjectLabels = (currentStudent.precheckSummary?.objectAnalysis?.objects || []).map((item) => item.label);
