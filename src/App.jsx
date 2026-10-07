@@ -403,10 +403,13 @@ function LiveFeeds({ sessionId, student }) {
   const sessionFeedsRef = useRef(null);
   const receivedStreams = useRef({ screen: null, camera: null });
   const signalingRef = useRef(null);
+  const feedRequestPendingRef = useRef(false);
   const latestCameraCue = [...(student.events || [])].reverse().find((event) => event.type.startsWith("camera-") || event.type.startsWith("face-") || event.type === "multiple-faces-detected");
   const [screenState, setScreenState] = useState("Connecting");
   const [cameraState, setCameraState] = useState("Connecting");
   const [retrying, setRetrying] = useState(false);
+  const [feedRequestPending, setFeedRequestPending] = useState(false);
+  const [lastFeedRequestMessage, setLastFeedRequestMessage] = useState("");
   const [activeScreenShares, setActiveScreenShares] = useState(0);
   const [isScreenFullscreen, setIsScreenFullscreen] = useState(false);
   const [isSessionFullscreen, setIsSessionFullscreen] = useState(false);
@@ -482,6 +485,22 @@ function LiveFeeds({ sessionId, student }) {
         for (const candidate of queuedCandidates.splice(0)) await pc.addIceCandidate(candidate);
         const answer = await pc.createAnswer(); await pc.setLocalDescription(answer);
         socket.send(JSON.stringify({ type: "answer", answer }));
+      } else if (message.type === "feed-request-response") {
+        setFeedRequestPending(false);
+        feedRequestPendingRef.current = false;
+        if (message.approved) {
+          setRetrying(true);
+          setScreenState("Reconnecting");
+          setCameraState("Reconnecting");
+          setLastFeedRequestMessage("Student approved feed reconnect. Reconnecting now…");
+          if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "retry-media" }));
+          window.setTimeout(() => setRetrying(false), 6000);
+        } else {
+          setRetrying(false);
+          setLastFeedRequestMessage(message.reason || "Student declined feed reconnect request.");
+          setScreenState((state) => state === "Retry requested" ? "No feed received" : state);
+          setCameraState((state) => state === "Retry requested" ? "No feed received" : state);
+        }
       } else if (message.type === "candidate") {
         if (pc.remoteDescription) await pc.addIceCandidate(message.candidate); else queuedCandidates.push(message.candidate);
       }
@@ -517,19 +536,34 @@ function LiveFeeds({ sessionId, student }) {
     if (!socket || socket.readyState !== WebSocket.OPEN) {
       setScreenState("Waiting for student connection");
       setCameraState("Waiting for student connection");
+      setFeedRequestPending(false);
+      feedRequestPendingRef.current = false;
       return;
     }
+    if (feedRequestPending) return;
     setRetrying(true);
+    setFeedRequestPending(true);
+    feedRequestPendingRef.current = true;
+    setLastFeedRequestMessage("Waiting for student approval to reconnect webcam and screen feeds…");
     setScreenState("Retry requested");
     setCameraState("Retry requested");
-    socket.send(JSON.stringify({ type: "retry-media" }));
+    socket.send(JSON.stringify({
+      type: "feed-request",
+      requestId: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      requestedFeeds: { camera: true, screen: true },
+      requester: "Lecturer"
+    }));
     window.setTimeout(() => {
+      if (!feedRequestPendingRef.current) return;
       setRetrying(false);
+      setFeedRequestPending(false);
+      feedRequestPendingRef.current = false;
+      setLastFeedRequestMessage("No response yet from student. Ask them to approve feed reconnect.");
       setScreenState((state) => state === "Retry requested" ? "No feed received" : state);
       setCameraState((state) => state === "Retry requested" ? "No feed received" : state);
     }, 8000);
   }
-  return <><div className="media-grid" ref={sessionFeedsRef}><div className="media-tile" key="screen"><div className="media-title"><Monitor size={14}/> Shared screen<span className="media-live"><i />{screenState}</span></div><div className="media-frame" ref={screenTileRef}>{screenState === "Live feed" ? <video ref={bindScreenVideo} autoPlay playsInline muted /> : <div className="media-placeholder"><Monitor size={24}/><span>{screenState}</span></div>}<button className="fullscreen-feed-button" type="button" onClick={toggleScreenFullscreen} disabled={!receivedStreams.current.screen}><Maximize2 size={14}/>{isScreenFullscreen ? "Exit full screen" : "Full screen"}</button></div></div><div className="media-tile" key="camera"><div className="media-title"><Video size={14}/> Webcam<span className="media-live"><i />{cameraState}</span></div><div className="media-frame">{cameraState === "Live feed" ? <video ref={bindCameraVideo} autoPlay playsInline muted /> : <div className="media-placeholder"><Video size={24}/><span>{cameraState}</span></div>}</div></div>{isSessionFullscreen && <button className="fullscreen-session-exit" type="button" onClick={toggleSessionFullscreen}>Exit full session view</button>}</div><div className="screen-share-summary"><Monitor size={14}/><strong>{activeScreenShares}</strong> active feed{activeScreenShares === 1 ? "" : "s"} received in this session.{student.reportedDisplayCount ? ` Student reports ${student.reportedDisplayCount} display${student.reportedDisplayCount === "1" ? "" : "s"}.` : " Student display count not reported."}{student.reportedDisplay ? ` Declared shared display: ${student.reportedDisplay}.` : ""}{student.screenReady && student.screenSurface === "monitor" ? " Browser confirms the captured source is an entire-display surface." : " Browser has not confirmed an entire-display surface."}<span>Display count and selection are student-reported; browsers do not reveal other connected monitors.</span></div><div className="live-feed-actions"><span>Check the student's sharing connection if either feed is unavailable.</span><button className="button-secondary" onClick={toggleSessionFullscreen} disabled={activeScreenShares === 0}><Maximize2 size={14}/>{isSessionFullscreen ? "Exit full session view" : "Full session view"}</button><button className="button-secondary" onClick={retryFeeds} disabled={retrying || student.status !== "approved"}><RefreshCw size={14} className={retrying ? "retry-spin" : ""}/>{retrying ? "Checking feeds…" : "Check & retry feeds"}</button></div><div className="live-analysis-card"><Activity size={14}/><span><strong>On-device camera checks</strong>{latestCameraCue ? ` · ${eventTitle(latestCameraCue.type)}${latestCameraCue.payload?.faceCount != null ? ` (${latestCameraCue.payload.faceCount} detected)` : ""} · ${formatTime(latestCameraCue.timestamp)}` : " · Waiting for the first check"}. Face position/count cues are approximate and are not misconduct findings.</span></div></>;
+  return <><div className="media-grid" ref={sessionFeedsRef}><div className="media-tile" key="screen"><div className="media-title"><Monitor size={14}/> Shared screen<span className="media-live"><i />{screenState}</span></div><div className="media-frame" ref={screenTileRef}>{screenState === "Live feed" ? <video ref={bindScreenVideo} autoPlay playsInline muted /> : <div className="media-placeholder"><Monitor size={24}/><span>{screenState}</span></div>}<button className="fullscreen-feed-button" type="button" onClick={toggleScreenFullscreen} disabled={!receivedStreams.current.screen}><Maximize2 size={14}/>{isScreenFullscreen ? "Exit full screen" : "Full screen"}</button></div></div><div className="media-tile" key="camera"><div className="media-title"><Video size={14}/> Webcam<span className="media-live"><i />{cameraState}</span></div><div className="media-frame">{cameraState === "Live feed" ? <video ref={bindCameraVideo} autoPlay playsInline muted /> : <div className="media-placeholder"><Video size={24}/><span>{cameraState}</span></div>}</div></div>{isSessionFullscreen && <button className="fullscreen-session-exit" type="button" onClick={toggleSessionFullscreen}>Exit full session view</button>}</div><div className="screen-share-summary"><Monitor size={14}/><strong>{activeScreenShares}</strong> active feed{activeScreenShares === 1 ? "" : "s"} received in this session.{student.reportedDisplayCount ? ` Student reports ${student.reportedDisplayCount} display${student.reportedDisplayCount === "1" ? "" : "s"}.` : " Student display count not reported."}{student.reportedDisplay ? ` Declared shared display: ${student.reportedDisplay}.` : ""}{student.screenReady && student.screenSurface === "monitor" ? " Browser confirms the captured source is an entire-display surface." : " Browser has not confirmed an entire-display surface."}<span>Display count and selection are student-reported; browsers do not reveal other connected monitors.</span></div><div className="live-feed-actions"><span>Check the student's sharing connection if either feed is unavailable.</span><button className="button-secondary" onClick={toggleSessionFullscreen} disabled={activeScreenShares === 0}><Maximize2 size={14}/>{isSessionFullscreen ? "Exit full session view" : "Full session view"}</button><button className="button-secondary" onClick={retryFeeds} disabled={retrying || student.status !== "approved"}><RefreshCw size={14} className={retrying ? "retry-spin" : ""}/>{retrying ? "Checking feeds…" : "Check & retry feeds"}</button></div>{lastFeedRequestMessage && <div className="form-error" style={{ marginTop: 8 }}>{lastFeedRequestMessage}</div>}<div className="live-analysis-card"><Activity size={14}/><span><strong>On-device camera checks</strong>{latestCameraCue ? ` · ${eventTitle(latestCameraCue.type)}${latestCameraCue.payload?.faceCount != null ? ` (${latestCameraCue.payload.faceCount} detected)` : ""} · ${formatTime(latestCameraCue.timestamp)}` : " · Waiting for the first check"}. Face position/count cues are approximate and are not misconduct findings.</span></div></>;
 }
 
 function EventTimeline({ events }) {
@@ -561,6 +595,7 @@ function StudentJoin({ sessionId }) {
   const [analyzingObjects, setAnalyzingObjects] = useState(false);
   const [eventCount, setEventCount] = useState(0);
   const [lowLightAssist, setLowLightAssist] = useState(false);
+  const [pendingFeedRequest, setPendingFeedRequest] = useState(null);
   const [faceMonitor, setFaceMonitor] = useState({ state: "idle", count: null, detail: "Local face-presence and position checks start after webcam access." });
   const cameraRef = useRef(null);
   const trackingVideoRef = useRef(null);
@@ -576,6 +611,8 @@ function StudentJoin({ sessionId }) {
   const scanVideoBlobRef = useRef(null);
   const screenShiftRef = useRef({ recent: [], lastReportedAt: 0, previousSignature: null });
   const lightStateRef = useRef({ low: false, lastSampleAt: 0 });
+  const signalingSocketRef = useRef(null);
+  const sendOfferRef = useRef(null);
   const bindCameraVideo = useCallback((node) => {
     cameraRef.current = node;
     attachVideoStream(node, cameraStream);
@@ -645,6 +682,8 @@ function StudentJoin({ sessionId }) {
         negotiationRunning = false;
       }
     };
+    signalingSocketRef.current = socket;
+    sendOfferRef.current = sendOffer;
     socket.onopen = () => { announceStudent(); greetingTimer = setInterval(announceStudent, 1200); };
     socket.onmessage = async ({ data }) => {
       const message = JSON.parse(data);
@@ -654,6 +693,12 @@ function StudentJoin({ sessionId }) {
         await sendOffer();
       } else if (message.type === "retry-media") {
         await sendOffer(true);
+      } else if (message.type === "feed-request") {
+        setPendingFeedRequest({
+          requestId: message.requestId,
+          requester: message.requester || "Lecturer",
+          requestedFeeds: message.requestedFeeds || { camera: true, screen: true }
+        });
       } else if (message.type === "answer") {
         await pc.setRemoteDescription(message.answer);
         for (const candidate of queuedCandidates.splice(0)) await pc.addIceCandidate(candidate);
@@ -661,7 +706,13 @@ function StudentJoin({ sessionId }) {
         if (pc.remoteDescription) await pc.addIceCandidate(message.candidate); else queuedCandidates.push(message.candidate);
       }
     };
-    return () => { clearInterval(greetingTimer); socket.close(); pc.close(); };
+    return () => {
+      clearInterval(greetingTimer);
+      if (signalingSocketRef.current === socket) signalingSocketRef.current = null;
+      if (sendOfferRef.current === sendOffer) sendOfferRef.current = null;
+      socket.close();
+      pc.close();
+    };
   }, [student?.id, student?.status, sessionId, cameraStream, screenStream]);
 
   useEffect(() => {
@@ -1080,6 +1131,51 @@ function StudentJoin({ sessionId }) {
     location.href = "/";
   }
 
+  async function respondToFeedRequest(approved) {
+    if (!pendingFeedRequest) return;
+    const socket = signalingSocketRef.current;
+    const request = pendingFeedRequest;
+    setPendingFeedRequest(null);
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      setError("Lecturer feed request expired. Ask your lecturer to try again.");
+      return;
+    }
+    if (!approved) {
+      socket.send(JSON.stringify({
+        type: "feed-request-response",
+        requestId: request.requestId,
+        approved: false,
+        reason: "Student declined feed reconnect request."
+      }));
+      return;
+    }
+    const missingCamera = request.requestedFeeds?.camera && !cameraStream?.active;
+    const missingScreen = request.requestedFeeds?.screen && !screenStream?.active;
+    if (missingCamera || missingScreen) {
+      const reason = missingCamera && missingScreen
+        ? "Student must re-enable webcam and screen sharing before reconnecting feeds."
+        : missingCamera
+          ? "Student webcam is not active."
+          : "Student screen sharing is not active.";
+      socket.send(JSON.stringify({ type: "feed-request-response", requestId: request.requestId, approved: false, reason }));
+      setError(missingCamera
+        ? "Your lecturer requested webcam reconnect. Please enable your webcam first."
+        : "Your lecturer requested screen reconnect. Please share your entire screen first.");
+      return;
+    }
+    socket.send(JSON.stringify({
+      type: "feed-request-response",
+      requestId: request.requestId,
+      approved: true,
+      approvedAt: new Date().toISOString()
+    }));
+    try {
+      await sendOfferRef.current?.(true);
+    } catch {
+      setError("Could not reconnect feeds right now. Ask your lecturer to retry.");
+    }
+  }
+
   if (error && !session) return <StudentShell><div className="student-error"><ShieldAlert size={26}/><h2>We couldn’t open this assessment</h2><p>{error}</p><a className="button-secondary" href="/">Return to home</a></div></StudentShell>;
   if (!session) return <StudentShell><div className="student-loading">Loading assessment details…</div></StudentShell>;
   if (session.status !== "live") return <StudentShell><div className="student-error"><Clock3 size={26}/><h2>This assessment isn’t open</h2><p>Ask your lecturer if you think you should have access.</p></div></StudentShell>;
@@ -1104,6 +1200,7 @@ function StudentJoin({ sessionId }) {
             <div className="setup-footer"><div><LockKeyhole size={15}/><span>Camera and screen access can be stopped in your browser at any time.</span></div><button className="button-primary" onClick={submitScan} disabled={busy || recordingScan || !cameraStream || !screenStream || !scanVideoBlobRef.current}>{busy ? analyzingObjects ? "Analyzing walkthrough…" : "Submitting…" : "Submit setup for review"}<ArrowRight size={16}/></button></div>
           </div>}
            </div>
+          {pendingFeedRequest && <div className="form-error" style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }}><span><strong>{pendingFeedRequest.requester}</strong> requested to reconnect your {pendingFeedRequest.requestedFeeds?.camera && pendingFeedRequest.requestedFeeds?.screen ? "webcam and shared screen" : pendingFeedRequest.requestedFeeds?.camera ? "webcam" : "shared screen"} feed{pendingFeedRequest.requestedFeeds?.camera && pendingFeedRequest.requestedFeeds?.screen ? "s" : ""}.</span><div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}><button className="button-secondary" onClick={() => respondToFeedRequest(false)}>Not now</button><button className="button-primary compact" onClick={() => respondToFeedRequest(true)}>Approve reconnect</button></div></div>}
           {lowLightAssist && <div className="low-light-assist" aria-hidden="true"><div className="low-light-assist-tip">Low webcam light detected · brighten your face in view</div></div>}
       <footer className="student-footer"><span><ShieldCheck size={14}/> Proctor Buddy · Assessment workspace</span><a href="#" onClick={(event) => { event.preventDefault(); alert("Contact your lecturer for help with this assessment."); }}>Need help?</a></footer><video ref={trackingVideoRef} className="tracking-video" autoPlay playsInline muted/><canvas ref={canvasRef} width="720" height="405" hidden/>
     </div>
