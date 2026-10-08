@@ -54,6 +54,23 @@ export function updateSession(id, changes) {
   Object.assign(session, changes);
   if (changes.status === "ended") {
     for (const student of session.students) {
+      if (student.precheckVideo?.dataUrl) {
+        student.precheckVideo = {
+          mimeType: student.precheckVideo.mimeType || null,
+          submittedAt: student.precheckVideo.submittedAt || null,
+          purgedAt: new Date().toISOString(),
+          purgedReason: "session-ended"
+        };
+      }
+      if (student.precheckShots?.length) {
+        student.precheckShots = [];
+      }
+      student.events = (student.events || []).map((event) => {
+        if (!event?.payload?.imageDataUrl) return event;
+        const payload = { ...event.payload };
+        delete payload.imageDataUrl;
+        return { ...event, payload };
+      });
       if (student.status !== "ended") {
         student.status = "ended";
         student.events.push({
