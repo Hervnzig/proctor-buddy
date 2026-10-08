@@ -4,13 +4,14 @@ const sessions = new Map();
 const MAX_EVENTS_PER_STUDENT = 300;
 const MAX_EVENTS_WITH_IMAGES_PER_STUDENT = 40;
 
-export function createSession({ title, lecturerName }) {
+export function createSession({ title, lecturerName, assignmentHost = "" }) {
   const now = new Date().toISOString();
   const session = {
     id: uuidv4(),
     joinCode: uuidv4().slice(0, 8).toUpperCase(),
     title,
     lecturerName,
+    assignmentHost,
     status: "live",
     createdAt: now,
     students: []

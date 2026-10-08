@@ -40,6 +40,14 @@ test("lecturer creates a quiz session and student session", async (context) => {
   assert.ok(created.body.joinCode);
 
   const sessionId = created.body.id;
+  const hostUpdated = await request(`/api/sessions/${sessionId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ assignmentHost: "Moodle" })
+  });
+  assert.equal(hostUpdated.response.status, 200);
+  assert.equal(hostUpdated.body.assignmentHost, "Moodle");
+
   const joined = await request(`/api/sessions/${sessionId}/students`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

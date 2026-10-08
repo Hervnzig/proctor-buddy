@@ -45,13 +45,13 @@ app.get("/health", (_, response) => {
 });
 
 app.post("/api/sessions", (request, response) => {
-  const { title, lecturerName } = request.body ?? {};
+  const { title, lecturerName, assignmentHost = "" } = request.body ?? {};
   if (!title || !lecturerName) {
     response.status(400).json({ error: "title and lecturerName are required" });
     return;
   }
 
-  const session = createSession({ title, lecturerName });
+  const session = createSession({ title, lecturerName, assignmentHost: String(assignmentHost).trim().slice(0, 160) });
   response.status(201).json(session);
 });
 
@@ -79,12 +79,25 @@ app.get("/api/sessions/:id/students/:studentId/status", (request, response) => {
 });
 
 app.patch("/api/sessions/:id", (request, response) => {
-  const { status } = request.body ?? {};
-  if (status !== "ended" && status !== "live") {
+  const { status, assignmentHost } = request.body ?? {};
+  const hasStatus = typeof status !== "undefined";
+  const hasAssignmentHost = typeof assignmentHost !== "undefined";
+  if (!hasStatus && !hasAssignmentHost) {
+    response.status(400).json({ error: "provide status and/or assignmentHost" });
+    return;
+  }
+  if (hasStatus && status !== "ended" && status !== "live") {
     response.status(400).json({ error: "status must be live or ended" });
     return;
   }
-  const session = updateSession(request.params.id, { status, endedAt: status === "ended" ? new Date().toISOString() : null });
+  if (hasAssignmentHost && typeof assignmentHost !== "string") {
+    response.status(400).json({ error: "assignmentHost must be a string" });
+    return;
+  }
+  const session = updateSession(request.params.id, {
+    ...(hasStatus ? { status, endedAt: status === "ended" ? new Date().toISOString() : null } : {}),
+    ...(hasAssignmentHost ? { assignmentHost: assignmentHost.trim().slice(0, 160) } : {})
+  });
   if (!session) {
     response.status(404).json({ error: "session not found" });
     return;
