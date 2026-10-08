@@ -10,6 +10,7 @@ import "./movement-log.css";
 import "./sidebar-toggle.css";
 import "./fixed-topbar.css";
 import "./workspace-pages.css";
+import "./theme-fixes.css";
 
 createRoot(document.getElementById("root")).render(
   <React.StrictMode>
