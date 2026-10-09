@@ -471,6 +471,7 @@ function ReviewDecision({ student, onDecide, permissions }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [reviewedEvidence, setReviewedEvidence] = useState(false);
+  const [aiReviewOpened, setAiReviewOpened] = useState(false);
   const [confirmedObjects, setConfirmedObjects] = useState([]);
   const objects = student.precheckSummary?.objectAnalysis?.objects || [];
   const allObjectsConfirmed = objects.every((item) => confirmedObjects.includes(item.label));
@@ -481,6 +482,10 @@ function ReviewDecision({ student, onDecide, permissions }) {
     }
     if (!reviewedEvidence) {
       setError("Review the submitted walkthrough video before making a decision.");
+      return;
+    }
+    if (approved && !aiReviewOpened) {
+      setError("Open AI-assisted cues after reviewing the video, then confirm before approving.");
       return;
     }
     if (approved && !allObjectsConfirmed) {
@@ -504,8 +509,15 @@ function ReviewDecision({ student, onDecide, permissions }) {
   return <div className="review-decision">
     <div className="object-review-list">
       <strong>Background object cues <span>AI-assisted · lecturer confirms</span></strong>
-      {student.precheckSummary?.objectAnalysis?.status === "unavailable" && <p>{student.precheckSummary.objectAnalysis.note}</p>}
-      {objects.length ? objects.map((item) => <label key={item.label} className="object-review-item"><input type="checkbox" checked={confirmedObjects.includes(item.label)} onChange={(event) => setConfirmedObjects((old) => event.target.checked ? [...old, item.label] : old.filter((label) => label !== item.label))}/><span><b>{item.label}</b> · {item.sightings} sampled frame{item.sightings === 1 ? "" : "s"} · up to {Math.round(item.maxConfidence * 100)}% confidence{item.sampleSeconds?.length ? ` · at ${item.sampleSeconds.map((second) => `${second}s`).join(", ")}` : ""} · I confirm this category is acceptable.</span></label>) : student.precheckSummary?.objectAnalysis?.status === "complete" ? <p>No object categories detected in sampled frames. This does not mean the space is empty.</p> : <p>Object labels unavailable; assess the video and images manually.</p>}
+      <p>Step order: first watch the student's submitted video, then open these AI-assisted cues for comparison before approving entry.</p>
+      <button className="button-secondary" type="button" disabled={!reviewedEvidence} onClick={() => setAiReviewOpened((current) => !current)}>
+        {aiReviewOpened ? "Hide AI cues" : "Open AI cues"}
+      </button>
+      {!reviewedEvidence && <p>Watch the submitted video first, then check “I reviewed the submitted walkthrough video.” to unlock AI cues.</p>}
+      {aiReviewOpened && reviewedEvidence && <>
+        {student.precheckSummary?.objectAnalysis?.status === "unavailable" && <p>{student.precheckSummary.objectAnalysis.note}</p>}
+        {objects.length ? objects.map((item) => <label key={item.label} className="object-review-item"><input type="checkbox" checked={confirmedObjects.includes(item.label)} onChange={(event) => setConfirmedObjects((old) => event.target.checked ? [...old, item.label] : old.filter((label) => label !== item.label))}/><span><b>{item.label}</b> · {item.sightings} sampled frame{item.sightings === 1 ? "" : "s"} · up to {Math.round(item.maxConfidence * 100)}% confidence{item.sampleSeconds?.length ? ` · at ${item.sampleSeconds.map((second) => `${second}s`).join(", ")}` : ""} · I confirm this category is acceptable.</span></label>) : student.precheckSummary?.objectAnalysis?.status === "complete" ? <p>No object categories detected in sampled frames. This does not mean the space is empty.</p> : <p>Object labels unavailable; assess the video and images manually.</p>}
+      </>}
     </div>
     <label className="evidence-review-confirm"><input type="checkbox" checked={reviewedEvidence} onChange={(event) => setReviewedEvidence(event.target.checked)}/><span>I reviewed the submitted walkthrough video.</span></label>
     <label className="field-label">Message for student (required for retry)<textarea value={message} onChange={(event) => setMessage(event.target.value)} maxLength={1000} placeholder="e.g. Please pan the camera more slowly and ensure the whole desk is visible." /></label>
@@ -745,6 +757,7 @@ function StudentJoin({ sessionId }) {
   const [feedRequestSecondsLeft, setFeedRequestSecondsLeft] = useState(30);
   const [quizModeStarted, setQuizModeStarted] = useState(false);
   const [faceMonitor, setFaceMonitor] = useState({ state: "idle", count: null, detail: "Local face-presence and position checks start after webcam access." });
+  const mobileDevice = isMobileBrowser();
   const studentWorkspaceRef = useRef(null);
   const cameraRef = useRef(null);
   const trackingVideoRef = useRef(null);
@@ -1170,10 +1183,18 @@ function StudentJoin({ sessionId }) {
 
   async function enableCamera() {
     const issue = mediaCaptureIssue("getUserMedia");
-    if (issue) { setError(issue); return; }
+    if (issue) { setError(issue); return false; }
     try {
       setError("");
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 }, audio: false });
+      let stream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" },
+          audio: false
+        });
+      } catch (constraintError) {
+        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      }
       setCameraStream(stream);
       stream.getVideoTracks()[0]?.addEventListener("ended", () => {
         if (sessionEndRef.current) return;
@@ -1185,13 +1206,14 @@ function StudentJoin({ sessionId }) {
       }, { once: true });
       await api(`/sessions/${sessionId}/students/${student.id}`, { method: "PATCH", body: JSON.stringify({ cameraReady: true }) });
       await api(`/sessions/${sessionId}/students/${student.id}/events`, { method: "POST", body: JSON.stringify({ type: "camera-webcam-enabled" }) });
+      return true;
     }
-    catch (err) { setError(describeMediaError(err, "camera")); }
+    catch (err) { setError(describeMediaError(err, "camera")); return false; }
   }
 
   async function shareScreen() {
     const issue = mediaCaptureIssue("getDisplayMedia");
-    if (issue) { setError(issue); return; }
+    if (issue) { setError(issue); return false; }
     let stream;
     try {
       setError("");
@@ -1207,7 +1229,7 @@ function StudentJoin({ sessionId }) {
           body: JSON.stringify({ type: "screen-share-source-invalid", payload: { surface: surface || "unknown", message: "Non-entire-screen source selected for assessment monitoring." } })
         }).catch(() => {});
         setError(surface ? "Please choose Entire Screen in the browser picker. Window and browser-tab sharing are not accepted." : "This browser cannot confirm that the entire screen is being shared. Use a supported browser that reports display surface type.");
-        return;
+        return false;
       }
       setScreenStream(stream);
       track.addEventListener("ended", () => {
@@ -1235,9 +1257,11 @@ function StudentJoin({ sessionId }) {
           reportedDisplay: selectedDisplay
         } })
       });
+      return true;
     } catch (err) {
       stream?.getTracks().forEach((item) => item.stop());
       setError(describeMediaError(err, "screen"));
+      return false;
     }
   }
 
@@ -1431,9 +1455,11 @@ function StudentJoin({ sessionId }) {
           ? "Student webcam is not active."
           : "Student screen sharing is not active.";
       socket.send(JSON.stringify({ type: "feed-request-response", requestId: request.requestId, approved: false, reason }));
-      setError(missingCamera
-        ? "Your lecturer requested webcam reconnect. Please enable your webcam first."
-        : "Your lecturer requested screen reconnect. Please share your entire screen first.");
+      setError(missingCamera && missingScreen
+        ? "Your lecturer requested both feeds. Enable webcam and share your entire screen, then approve reconnect."
+        : missingCamera
+          ? "Your lecturer requested webcam reconnect. Enable your webcam in this popup, then approve reconnect."
+          : "Your lecturer requested screen reconnect. Share your entire screen in this popup, then approve reconnect.");
       return;
     }
     socket.send(JSON.stringify({
@@ -1461,11 +1487,11 @@ function StudentJoin({ sessionId }) {
       <div className="student-topline"><a className="student-brand" href="/"><span className="brand-mark"><ShieldCheck size={17}/></span>Proctor Buddy</a><div className="student-session-tag"><span className={`secure-dot ${isApproved ? "" : "amber-dot"}`}/>{isApproved ? "Proctoring active" : "Pre-assessment check"}</div><button className="student-exit" onClick={endSession}><LogOut size={15}/> Exit</button></div>
       <div className="student-main">
         <div className="student-progress"><span className="done"><Check size={12}/> Join</span><i/><span className={student.status !== "setup" ? "done" : "current"}>{student.status !== "setup" ? <Check size={12}/> : "2"} Setup</span><i/><span className={isApproved ? "done" : student.status === "awaiting-review" ? "current" : ""}>{isApproved ? <Check size={12}/> : "3"} Review</span><i/><span className={isApproved ? "current" : ""}>Quiz</span></div>
-        {student.status === "ended" ? <div className="awaiting-card"><div className="waiting-icon"><CheckCircle2 size={24}/></div><div className="eyebrow">SESSION CLOSED</div><h1>This assessment has ended</h1><p>Your camera and screen sharing have been stopped. Contact your lecturer if you need help.</p></div> : isApproved ? <div className="approved-view">{error && <div className="form-error student-form-error"><ShieldAlert size={15}/><span>{error}</span><button className="button-secondary" onClick={screenStream ? shareScreen : enableCamera}>{screenStream ? "Share entire screen again" : "Enable webcam"}</button></div>}<div className="approval-success"><div className="success-ring"><CheckCircle2 size={31}/></div><div className="eyebrow">YOU’RE ALL SET</div><h1>Session approved</h1><p>Your lecturer approved your setup. Keep this tab open, keep webcam on, and keep entire-screen sharing enabled during your quiz.</p>{student.reviewMessage && <div className="student-review-message"><strong>Message from your lecturer</strong><p>{student.reviewMessage}</p></div>}</div><div className="live-preview-grid"><div className="live-preview-card"><div><Monitor size={15}/> Shared screen <span className="live-label"><i/>LIVE</span></div><video ref={bindScreenVideo} autoPlay playsInline muted /></div><div className="live-preview-card"><div><Video size={15}/> Webcam <span className="live-label"><i/>LIVE</span></div><video ref={bindCameraVideo} autoPlay playsInline muted /></div></div><div className="monitoring-card"><div className="monitoring-symbol"><Activity size={19}/></div><div><strong>Monitoring is active</strong><span>Your lecturer can see the live webcam and full-screen feed. Approximate face presence/count and coarse face-position checks run locally on your device and are not misconduct findings.</span></div><span className="event-counter">{eventCount} events</span></div><div className="student-quiz-note"><BookOpen size={17}/><span><strong>Ready for your quiz?</strong><br/>Quiz host set by lecturer: {session.assignmentHost || "Not set"}. Start quiz mode to lock fullscreen.</span><ArrowUpRight size={16}/></div><button className="button-primary full-button" onClick={startQuizMode} disabled={quizModeStarted}>{quizModeStarted ? "Quiz mode active" : "Start quiz mode (fullscreen)"}</button><button className="button-secondary full-button end-button" onClick={endSession}>End monitored session</button></div> : student.status === "changes-requested" ? <div className="awaiting-card retry-request-card"><div className="waiting-icon"><RefreshCw size={24}/></div><div className="eyebrow">REVIEW REQUESTED</div><h1>Please update your setup</h1><p>{student.reviewMessage || "Your lecturer has requested another background scan."}</p><button className="button-primary" onClick={retrySetup} disabled={busy}>I’ve addressed this — retry scan<ArrowRight size={16}/></button></div> : student.status === "awaiting-review" ? <div className="awaiting-card"><div className="waiting-icon"><Clock3 size={24}/></div><div className="eyebrow">SETUP SUBMITTED</div><h1>Waiting for your lecturer</h1><p>Your background check has been submitted. Your lecturer will review it before you can start.</p><div className="waiting-progress"><span/><span/><span className="pulse-dot"/></div><small>This page will update automatically after the review.</small></div> : <div className="setup-content">
+        {student.status === "ended" ? <div className="awaiting-card"><div className="waiting-icon"><CheckCircle2 size={24}/></div><div className="eyebrow">SESSION CLOSED</div><h1>This assessment has ended</h1><p>Your camera and screen sharing have been stopped. Contact your lecturer if you need help.</p></div> : isApproved ? <div className="approved-view">{error && <div className="form-error student-form-error"><ShieldAlert size={15}/><span>{error}</span>{!cameraStream?.active && <button className="button-secondary" onClick={enableCamera}>Enable webcam</button>}{!screenStream?.active && <button className="button-secondary" onClick={shareScreen}>Share entire screen</button>}</div>}<div className="approval-success"><div className="success-ring"><CheckCircle2 size={31}/></div><div className="eyebrow">YOU’RE ALL SET</div><h1>Session approved</h1><p>Your lecturer approved your setup. Keep this tab open, keep webcam on, and keep entire-screen sharing enabled during your quiz.</p>{student.reviewMessage && <div className="student-review-message"><strong>Message from your lecturer</strong><p>{student.reviewMessage}</p></div>}</div><div className="live-preview-grid"><div className="live-preview-card"><div><Monitor size={15}/> Shared screen <span className="live-label"><i/>LIVE</span></div><video ref={bindScreenVideo} autoPlay playsInline muted /></div><div className="live-preview-card"><div><Video size={15}/> Webcam <span className="live-label"><i/>LIVE</span></div><video ref={bindCameraVideo} autoPlay playsInline muted /></div></div><div className="monitoring-card"><div className="monitoring-symbol"><Activity size={19}/></div><div><strong>Monitoring is active</strong><span>Your lecturer can see the live webcam and full-screen feed. Approximate face presence/count and coarse face-position checks run locally on your device and are not misconduct findings.</span></div><span className="event-counter">{eventCount} events</span></div><div className="student-quiz-note"><BookOpen size={17}/><span><strong>Ready for your quiz?</strong><br/>Quiz host set by lecturer: {session.assignmentHost || "Not set"}. Start quiz mode to lock fullscreen.</span><ArrowUpRight size={16}/></div><button className="button-primary full-button" onClick={startQuizMode} disabled={quizModeStarted}>{quizModeStarted ? "Quiz mode active" : "Start quiz mode (fullscreen)"}</button><button className="button-secondary full-button end-button" onClick={endSession}>End monitored session</button></div> : student.status === "changes-requested" ? <div className="awaiting-card retry-request-card"><div className="waiting-icon"><RefreshCw size={24}/></div><div className="eyebrow">REVIEW REQUESTED</div><h1>Please update your setup</h1><p>{student.reviewMessage || "Your lecturer has requested another background scan."}</p><button className="button-primary" onClick={retrySetup} disabled={busy}>I’ve addressed this — retry scan<ArrowRight size={16}/></button></div> : student.status === "awaiting-review" ? <div className="awaiting-card"><div className="waiting-icon"><Clock3 size={24}/></div><div className="eyebrow">SETUP SUBMITTED</div><h1>Waiting for your lecturer</h1><p>Your background check has been submitted. Your lecturer will review it before you can start.</p><div className="waiting-progress"><span/><span/><span className="pulse-dot"/></div><small>This page will update automatically after the review.</small></div> : <div className="setup-content">
           <div className="setup-intro"><div className="eyebrow">STEP 2 OF 4 · DEVICE CHECK</div><h1>Set up your space</h1><p>Enable your webcam and share your entire screen for the quiz. Approximate face-presence/count and coarse face-position checks run locally; these cues may be inaccurate and are not misconduct findings.</p></div>
             <div className="device-grid">
               <div className={`device-card ${cameraStream ? "device-ready" : ""}`}><div className="device-card-head"><div className="device-icon"><Video size={18}/></div><span className={cameraStream ? "device-status ready" : "device-status"}><i/>{cameraStream ? "Enabled" : "Not enabled"}</span></div><h3>Webcam</h3><p>Allow camera access for the walkthrough and monitored session.</p>{cameraStream ? <div className="mini-video"><video ref={bindCameraVideo} autoPlay playsInline muted/><span><CheckCircle2 size={13}/> Camera preview</span></div> : <button className="button-secondary device-button" onClick={enableCamera}><Video size={15}/> Enable webcam</button>}</div>
-              <div className={`device-card ${screenStream ? "device-ready" : ""}`}><div className="device-card-head"><div className="device-icon screen-icon"><Monitor size={18}/></div><span className={screenStream ? "device-status ready" : "device-status"}><i/>{screenStream ? "Entire screen shared" : "Not sharing"}</span></div><h3>Entire screen</h3><p>Share your full display. Switching tabs on that screen will be flagged in monitoring logs.</p>{!screenStream && <div className="display-declaration"><label className="field-label">Lecturer-set quiz host<input readOnly value={session.assignmentHost || "Not set by lecturer yet"} /></label><small>{session.assignmentHost ? "Your lecturer set where the assignment is hosted." : "Wait for your lecturer to set the assignment host before submitting setup."}</small></div>}{screenStream ? <div className="mini-video"><video ref={bindScreenVideo} autoPlay playsInline muted/><span><CheckCircle2 size={13}/> Screen preview</span></div> : <button className="button-secondary device-button" onClick={shareScreen}><Monitor size={15}/> Share entire screen</button>}</div>
+              <div className={`device-card ${screenStream ? "device-ready" : ""}`}><div className="device-card-head"><div className="device-icon screen-icon"><Monitor size={18}/></div><span className={screenStream ? "device-status ready" : "device-status"}><i/>{screenStream ? "Entire screen shared" : "Not sharing"}</span></div><h3>Entire screen</h3><p>Share your full display. Switching tabs on that screen will be flagged in monitoring logs.</p>{!screenStream && <div className="display-declaration"><label className="field-label">Lecturer-set quiz host<input readOnly value={session.assignmentHost || "Not set by lecturer yet"} /></label><small>{session.assignmentHost ? "Your lecturer set where the assignment is hosted." : "Wait for your lecturer to set the assignment host before submitting setup."}</small>{mobileDevice && <small>Mobile browsers may not support verified entire-screen sharing for secure quiz monitoring. If this fails, continue on a laptop/desktop browser.</small>}</div>}{screenStream ? <div className="mini-video"><video ref={bindScreenVideo} autoPlay playsInline muted/><span><CheckCircle2 size={13}/> Screen preview</span></div> : <button className="button-secondary device-button" onClick={shareScreen}><Monitor size={15}/> Share entire screen</button>}</div>
             </div>
             <div className="camera-analysis-card"><div className="analysis-indicator"><span className={`analysis-pulse ${faceMonitor.state === "present" ? "on" : ""}`}/><div><strong>{cameraStream ? "Camera checks active" : "Camera checks not started"}</strong><span>{cameraStream ? faceMonitor.detail : "Checks start when webcam access is enabled."}</span></div></div><span className="analysis-local">ON DEVICE</span></div>
             <div className="scan-card background-video-card"><div className="eyebrow">10-SECOND WALKTHROUGH</div><h2>Record a short video of your background</h2><p>Move your webcam slowly to show the area around your workspace. Maximum upload size: 3.5 MB.</p>{scanVideoUrl && <video className="background-video-preview" style={{ width: "100%", maxHeight: 320, objectFit: "contain" }} src={scanVideoUrl} controls playsInline/>}{recordingScan ? <div className="recording-controls" style={{ display: "flex", alignItems: "center", gap: 10 }}><span className="recording-indicator"><i/>Recording (up to 10 seconds)</span><button className="button-secondary" onClick={finishBackgroundScan}>Stop recording</button></div> : <div className="recording-controls" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}><button className="button-secondary" onClick={recordBackgroundScan} disabled={!cameraStream || busy}><Video size={15}/>{scanVideoUrl ? "Record again" : "Record background video"}</button>{scanVideoUrl && <><button className="button-secondary" onClick={() => { scanVideoBlobRef.current = null; setScanVideoUrl(""); setScanVideoSize(0); if (scanVideoUrlRef.current) URL.revokeObjectURL(scanVideoUrlRef.current); scanVideoUrlRef.current = ""; }}>Remove video</button><span className="video-size-note">{(scanVideoSize / (1024 * 1024)).toFixed(2)} MB</span></>}</div>}<div className="scan-hint"><Eye size={15}/> Approximate on-device face-presence and position cues are only a review aid; your lecturer reviews the video.</div></div>
@@ -1473,7 +1499,7 @@ function StudentJoin({ sessionId }) {
             <div className="setup-footer"><div><LockKeyhole size={15}/><span>Camera and screen access can be stopped in your browser at any time.</span></div><button className="button-primary" onClick={submitScan} disabled={busy || recordingScan || !cameraStream || !screenStream || !scanVideoBlobRef.current || !session.assignmentHost}>{busy ? analyzingObjects ? "Analyzing walkthrough…" : "Submitting…" : "Submit setup for review"}<ArrowRight size={16}/></button></div>
           </div>}
            </div>
-          {pendingFeedRequest && <div className="feed-request-popup"><div className="feed-request-popup-card"><h4>Reconnect request</h4><p><strong>{pendingFeedRequest.requester}</strong> requested to reconnect your {pendingFeedRequest.requestedFeeds?.camera && pendingFeedRequest.requestedFeeds?.screen ? "webcam and shared-screen" : pendingFeedRequest.requestedFeeds?.camera ? "webcam" : "shared-screen"} feed{pendingFeedRequest.requestedFeeds?.camera && pendingFeedRequest.requestedFeeds?.screen ? "s" : ""}.</p><small>Auto-timeout in {feedRequestSecondsLeft}s</small><div className="feed-request-popup-actions"><button className="button-secondary" onClick={() => respondToFeedRequest(false)}>Not now</button><button className="button-primary compact" onClick={() => respondToFeedRequest(true)}>Approve reconnect</button></div></div></div>}
+          {pendingFeedRequest && <div className="feed-request-popup"><div className="feed-request-popup-card"><h4>Reconnect request</h4><p><strong>{pendingFeedRequest.requester}</strong> requested to reconnect your {pendingFeedRequest.requestedFeeds?.camera && pendingFeedRequest.requestedFeeds?.screen ? "webcam and shared-screen" : pendingFeedRequest.requestedFeeds?.camera ? "webcam" : "shared-screen"} feed{pendingFeedRequest.requestedFeeds?.camera && pendingFeedRequest.requestedFeeds?.screen ? "s" : ""}.</p><small>Auto-timeout in {feedRequestSecondsLeft}s</small><div className="feed-request-popup-actions">{pendingFeedRequest.requestedFeeds?.camera && !cameraStream?.active && <button className="button-secondary" onClick={enableCamera}>Enable webcam</button>}{pendingFeedRequest.requestedFeeds?.screen && !screenStream?.active && <button className="button-secondary" onClick={shareScreen}>Share entire screen</button>}<button className="button-secondary" onClick={() => respondToFeedRequest(false)}>Not now</button><button className="button-primary compact" onClick={() => respondToFeedRequest(true)} disabled={(pendingFeedRequest.requestedFeeds?.camera && !cameraStream?.active) || (pendingFeedRequest.requestedFeeds?.screen && !screenStream?.active)}>Approve reconnect</button></div></div></div>}
           {lowLightAssist && <div className="low-light-assist" aria-hidden="true"><div className="low-light-assist-tip">Low webcam light detected · brighten your face in view</div></div>}
       <footer className="student-footer"><span><ShieldCheck size={14}/> Proctor Buddy · Assessment workspace</span><a href="#" onClick={(event) => { event.preventDefault(); alert("Contact your lecturer for help with this assessment."); }}>Need help?</a></footer><video ref={trackingVideoRef} className="tracking-video" autoPlay playsInline muted/><canvas ref={canvasRef} width="720" height="405" hidden/>
     </div>
@@ -1530,10 +1556,24 @@ function fallbackCopy(value) {
 function mediaCaptureIssue(method) {
   const hostname = window.location.hostname;
   const localHost = hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]";
+  const mobile = isMobileBrowser();
   if (!window.isSecureContext && !localHost) return "Camera and screen access require HTTPS. For local testing, open http://localhost:5173/ (not the Network/LAN IP address). For deployment, use an HTTPS URL.";
   if (!navigator.mediaDevices) return "This page cannot access browser media devices. Open the app in a current Chrome or Edge browser using http://localhost:5173/ or HTTPS, then reload the page.";
-  if (typeof navigator.mediaDevices[method] !== "function") return method === "getUserMedia" ? "This browser does not support webcam capture here. Use a current Chrome or Edge browser and allow camera access." : "This browser does not support screen sharing here. Use a current desktop Chrome or Edge browser over localhost or HTTPS.";
+  if (typeof navigator.mediaDevices[method] !== "function") {
+    if (method === "getUserMedia") {
+      return "This browser does not support webcam capture here. Use a current Chrome or Edge browser and allow camera access.";
+    }
+    return mobile
+      ? "Your mobile browser does not support verified entire-screen sharing for this assessment. Continue on a laptop/desktop Chrome or Edge browser."
+      : "This browser does not support screen sharing here. Use a current desktop Chrome or Edge browser over localhost or HTTPS.";
+  }
+  if (method === "getDisplayMedia" && mobile) {
+    return "Mobile screen-sharing support is limited and may fail browser verification. If sharing does not start, continue on a laptop/desktop Chrome or Edge browser.";
+  }
   return "";
+}
+function isMobileBrowser() {
+  return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || "");
 }
 function describeMediaError(error, device) {
   const label = device === "camera" ? "webcam" : "entire-screen sharing";
