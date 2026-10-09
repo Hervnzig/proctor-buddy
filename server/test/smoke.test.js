@@ -33,20 +33,22 @@ test("lecturer creates a quiz session and student session", async (context) => {
   const created = await request("/api/sessions", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ title: "Biology unit quiz", lecturerName: "Jordan Miller" })
+    body: JSON.stringify({ title: "Biology unit quiz", lecturerName: "Jordan Miller", quizMode: "online" })
   });
   assert.equal(created.response.status, 201);
   assert.ok(created.body.id);
   assert.ok(created.body.joinCode);
+  assert.equal(created.body.quizMode, "online");
 
   const sessionId = created.body.id;
   const hostUpdated = await request(`/api/sessions/${sessionId}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ assignmentHost: "Moodle" })
+    body: JSON.stringify({ assignmentHost: "Moodle", quizMode: "inperson" })
   });
   assert.equal(hostUpdated.response.status, 200);
   assert.equal(hostUpdated.body.assignmentHost, "Moodle");
+  assert.equal(hostUpdated.body.quizMode, "inperson");
 
   const joined = await request(`/api/sessions/${sessionId}/students`, {
     method: "POST",

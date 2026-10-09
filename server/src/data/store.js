@@ -4,7 +4,11 @@ const sessions = new Map();
 const MAX_EVENTS_PER_STUDENT = 300;
 const MAX_EVENTS_WITH_IMAGES_PER_STUDENT = 40;
 
-export function createSession({ title, lecturerName, assignmentHost = "" }) {
+function normalizeQuizMode(mode) {
+  return mode === "inperson" ? "inperson" : "online";
+}
+
+export function createSession({ title, lecturerName, assignmentHost = "", quizMode = "online" }) {
   const now = new Date().toISOString();
   const session = {
     id: uuidv4(),
@@ -12,6 +16,7 @@ export function createSession({ title, lecturerName, assignmentHost = "" }) {
     title,
     lecturerName,
     assignmentHost,
+    quizMode: normalizeQuizMode(quizMode),
     status: "live",
     createdAt: now,
     students: []

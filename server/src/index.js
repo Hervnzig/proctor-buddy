@@ -45,13 +45,17 @@ app.get("/health", (_, response) => {
 });
 
 app.post("/api/sessions", (request, response) => {
-  const { title, lecturerName, assignmentHost = "" } = request.body ?? {};
+  const { title, lecturerName, assignmentHost = "", quizMode = "online" } = request.body ?? {};
   if (!title || !lecturerName) {
     response.status(400).json({ error: "title and lecturerName are required" });
     return;
   }
+  if (!["online", "inperson"].includes(quizMode)) {
+    response.status(400).json({ error: "quizMode must be online or inperson" });
+    return;
+  }
 
-  const session = createSession({ title, lecturerName, assignmentHost: String(assignmentHost).trim().slice(0, 160) });
+  const session = createSession({ title, lecturerName, assignmentHost: String(assignmentHost).trim().slice(0, 160), quizMode });
   response.status(201).json(session);
 });
 
@@ -79,11 +83,12 @@ app.get("/api/sessions/:id/students/:studentId/status", (request, response) => {
 });
 
 app.patch("/api/sessions/:id", (request, response) => {
-  const { status, assignmentHost } = request.body ?? {};
+  const { status, assignmentHost, quizMode } = request.body ?? {};
   const hasStatus = typeof status !== "undefined";
   const hasAssignmentHost = typeof assignmentHost !== "undefined";
-  if (!hasStatus && !hasAssignmentHost) {
-    response.status(400).json({ error: "provide status and/or assignmentHost" });
+  const hasQuizMode = typeof quizMode !== "undefined";
+  if (!hasStatus && !hasAssignmentHost && !hasQuizMode) {
+    response.status(400).json({ error: "provide status, assignmentHost, and/or quizMode" });
     return;
   }
   if (hasStatus && status !== "ended" && status !== "live") {
@@ -94,9 +99,14 @@ app.patch("/api/sessions/:id", (request, response) => {
     response.status(400).json({ error: "assignmentHost must be a string" });
     return;
   }
+  if (hasQuizMode && !["online", "inperson"].includes(quizMode)) {
+    response.status(400).json({ error: "quizMode must be online or inperson" });
+    return;
+  }
   const session = updateSession(request.params.id, {
     ...(hasStatus ? { status, endedAt: status === "ended" ? new Date().toISOString() : null } : {}),
-    ...(hasAssignmentHost ? { assignmentHost: assignmentHost.trim().slice(0, 160) } : {})
+    ...(hasAssignmentHost ? { assignmentHost: assignmentHost.trim().slice(0, 160) } : {}),
+    ...(hasQuizMode ? { quizMode } : {})
   });
   if (!session) {
     response.status(404).json({ error: "session not found" });

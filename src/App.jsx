@@ -53,6 +53,7 @@ const isViteHotUpdate = () => Boolean(import.meta.hot && Date.now() < preserveMe
 
 const formatTime = (date) => new Date(date).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 const statusLabel = (status) => ({ setup: "Setting up", "awaiting-review": "Needs review", "changes-requested": "Retry requested", approved: "In progress", ended: "Completed" }[status] || status);
+const quizModeLabel = (quizMode) => (quizMode === "inperson" ? "In-person" : "Online");
 
 export default function App() {
   const joinId = new URLSearchParams(location.search).get("join");
@@ -192,6 +193,16 @@ function LecturerDashboard() {
     setToast("Assignment host updated");
   }
 
+  async function setSessionQuizMode(quizMode) {
+    if (!session) return;
+    await api(`/sessions/${session.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ quizMode })
+    });
+    await refresh(true);
+    setToast(`Quiz mode set to ${quizModeLabel(quizMode)}`);
+  }
+
   return (
     <div className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
       <aside className="sidebar">
@@ -232,7 +243,7 @@ function LecturerDashboard() {
                 </table>
               </div>
             </section>
-            {session && <SessionDetail session={session} onCopy={copyJoinLink} joinLink={`${location.origin}/?join=${session.id}`} copyFailed={copyFailed} onApprove={approveStudent} onRefresh={refresh} onEnd={endAssessment} onSetAssignmentHost={setAssignmentHost} permissions={permissions} />}
+            {session && <SessionDetail session={session} onCopy={copyJoinLink} joinLink={`${location.origin}/?join=${session.id}`} copyFailed={copyFailed} onApprove={approveStudent} onRefresh={refresh} onEnd={endAssessment} onSetAssignmentHost={setAssignmentHost} onSetQuizMode={setSessionQuizMode} permissions={permissions} />}
           </>}
 
           {activePage === "settings" && <SettingsPanel theme={theme} setTheme={setTheme} permissions={permissions} setPermissions={setPermissions} />}
@@ -264,24 +275,27 @@ function ProfilePanel() {
 function CreateSessionModal({ onClose, onCreate }) {
   const [title, setTitle] = useState("");
   const [lecturerName, setLecturerName] = useState("Learning Coach");
+  const [quizMode, setQuizMode] = useState("online");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   async function submit(event) {
     event.preventDefault(); setBusy(true); setError("");
-    try { await onCreate({ title: title.trim(), lecturerName: lecturerName.trim() }); }
+    try { await onCreate({ title: title.trim(), lecturerName: lecturerName.trim(), quizMode }); }
     catch (err) { setError(err.message); } finally { setBusy(false); }
   }
-  return <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><form className="modal-card" onSubmit={submit}><div className="modal-top"><div className="modal-symbol"><Plus size={19} /></div><button type="button" className="icon-button" onClick={onClose}><X size={18} /></button></div><h2>Start an assessment</h2><p>Create a monitored session, then share its private join link with your class.</p><label className="field-label">Assessment name<input autoFocus value={title} onChange={(event) => setTitle(event.target.value)} placeholder="e.g. Biology · Unit 4 quiz" required /></label><label className="field-label">Lecturer name<input value={lecturerName} onChange={(event) => setLecturerName(event.target.value)} required /></label>{error && <div className="form-error">{error}</div>}<div className="modal-foot"><span><Shield size={14} /> Students choose to enable each device.</span><button className="button-primary" disabled={busy}>{busy ? "Creating…" : "Create session"}<ArrowRight size={16} /></button></div></form></div>;
+  return <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><form className="modal-card" onSubmit={submit}><div className="modal-top"><div className="modal-symbol"><Plus size={19} /></div><button type="button" className="icon-button" onClick={onClose}><X size={18} /></button></div><h2>Start an assessment</h2><p>Create a monitored session, then share its private join link with your class.</p><label className="field-label">Assessment name<input autoFocus value={title} onChange={(event) => setTitle(event.target.value)} placeholder="e.g. Biology · Unit 4 quiz" required /></label><label className="field-label">Lecturer name<input value={lecturerName} onChange={(event) => setLecturerName(event.target.value)} required /></label><label className="field-label">Quiz mode<select value={quizMode} onChange={(event) => setQuizMode(event.target.value)}><option value="online">Online · webcam + entire screen</option><option value="inperson">In-person · quiz tab only</option></select></label>{error && <div className="form-error">{error}</div>}<div className="modal-foot"><span><Shield size={14} /> Students choose to enable each device.</span><button className="button-primary" disabled={busy}>{busy ? "Creating…" : "Create session"}<ArrowRight size={16} /></button></div></form></div>;
 }
 
-function SessionDetail({ session, onCopy, onApprove, onRefresh, onEnd, onSetAssignmentHost, joinLink, copyFailed, permissions }) {
+function SessionDetail({ session, onCopy, onApprove, onRefresh, onEnd, onSetAssignmentHost, onSetQuizMode, joinLink, copyFailed, permissions }) {
   const students = session.students || [];
   const approvedStudents = students.filter((student) => student.status === "approved");
   const [selectedStudentId, setSelectedStudentId] = useState(students[0]?.id || null);
   const [assignmentHostDraft, setAssignmentHostDraft] = useState(session.assignmentHost || "");
+  const [quizModeDraft, setQuizModeDraft] = useState(session.quizMode || "online");
   const selected = students.find((student) => student.id === selectedStudentId) || students[0] || null;
   useEffect(() => { if (!students.find((student) => student.id === selectedStudentId)) setSelectedStudentId(students[0]?.id || null); }, [students, selectedStudentId]);
   useEffect(() => { setAssignmentHostDraft(session.assignmentHost || ""); }, [session.assignmentHost]);
+  useEffect(() => { setQuizModeDraft(session.quizMode || "online"); }, [session.quizMode]);
   function buildMovementLog(student) {
     return (student.events || []).map((event) => ({
       timestamp: event.timestamp,
@@ -322,7 +336,7 @@ function SessionDetail({ session, onCopy, onApprove, onRefresh, onEnd, onSetAssi
   }
   return <section className="detail-section"><div className="section-heading detail-heading"><div><div className="eyebrow"><Radio size={12} /> {session.status === "live" ? "LIVE SESSION" : "COMPLETED SESSION"}</div><h2>{session.title}</h2><p>Started {new Date(session.createdAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })} <span className="bullet">·</span> {students.length} student{students.length === 1 ? "" : "s"} joined</p></div><div className="detail-actions">{session.status === "live" && <button className="button-secondary" onClick={onEnd}><X size={14} /> End assessment</button>}<button className="button-secondary" onClick={downloadReport} disabled={!permissions.exportReports}><FileText size={14} /> Export report</button>{selected && <button className="button-secondary" onClick={downloadMovementLog} disabled={!permissions.exportReports}><Activity size={14} /> Export movement log</button>}<button className="button-secondary" onClick={onCopy}><Link2 size={15} /> Copy join link</button><button className="button-primary compact" onClick={() => onRefresh(true)}><RefreshCw size={15} /> Update</button></div></div>
     <div className="join-banner"><div className="join-banner-icon"><Link2 size={18} /></div><div><strong>Invite students to join</strong><span>Anyone with this link can request access to this assessment.</span></div><button onClick={onCopy}><Copy size={15} /> Copy invite link</button></div>
-    <div className="assignment-host-row"><label className="field-label">Assignment / quiz host (set by lecturer)<input value={assignmentHostDraft} onChange={(event) => setAssignmentHostDraft(event.target.value)} placeholder="e.g. Moodle, Canvas, Google Forms, school LMS" /></label><button className="button-secondary" onClick={() => onSetAssignmentHost(assignmentHostDraft)}>Save host</button></div>
+    <div className="assignment-host-row"><label className="field-label">Assignment / quiz host (set by lecturer)<input value={assignmentHostDraft} onChange={(event) => setAssignmentHostDraft(event.target.value)} placeholder="e.g. Moodle, Canvas, Google Forms, school LMS" /></label><button className="button-secondary" onClick={() => onSetAssignmentHost(assignmentHostDraft)}>Save host</button><label className="field-label">Quiz mode<select value={quizModeDraft} onChange={(event) => setQuizModeDraft(event.target.value)}><option value="online">Online</option><option value="inperson">In-person</option></select></label><button className="button-secondary" onClick={() => onSetQuizMode(quizModeDraft)}>Save mode</button></div>
     {approvedStudents.length > 0 && <MonitoringWall sessionId={session.id} students={approvedStudents} assignmentHost={session.assignmentHost || ""} />}
     {copyFailed && <div className="manual-link-row"><label htmlFor="student-invite-link">Copy this student link manually</label><input id="student-invite-link" readOnly value={joinLink} onFocus={(event) => event.target.select()} onClick={(event) => event.target.select()} /><button className="button-secondary" onClick={() => { const field = document.getElementById("student-invite-link"); field?.focus(); field?.select(); }}>Select link</button></div>}
     {!students.length ? <div className="session-empty"><div className="empty-icon"><Users size={21} /></div><strong>Waiting for students to join</strong><span>Share the link above. Each student will have a separate review and activity log.</span></div> : <div className="detail-content"><div className="student-list"><div className="list-title">STUDENT SESSIONS <span>{students.length}</span></div>{students.map((student, index) => <button key={student.id} className={`student-list-item ${selected?.id === student.id ? "chosen" : ""}`} onClick={() => setSelectedStudentId(student.id)}><div className={`avatar student-avatar color-${index % 4}`}>{initials(student.studentName)}</div><span className="student-list-copy"><strong>{student.studentName}</strong><small>{student.studentNumber}</small></span><StatusDot status={student.status} /></button>)}</div>
@@ -445,7 +459,7 @@ function StudentScreenTile({ sessionId, student, assignmentHost, focused = false
         {student.status === "awaiting-review" && <ReviewDecision key={student.id} student={student} onDecide={onApprove} permissions={permissions}/>}
         {student.reviewMessage && <div className="review-message-preview"><strong>Last message to student</strong><p>{student.reviewMessage}</p></div>}
       </section>
-      <LiveFeeds sessionId={session.id} student={student}/>
+      <LiveFeeds sessionId={session.id} student={student} quizMode={session.quizMode || "online"}/>
       <RealtimeMonitoringMetrics student={student} />
     </> : <EventTimeline events={student.events || []} />}
   </div>;
@@ -525,7 +539,7 @@ function ReviewDecision({ student, onDecide, permissions }) {
   </div>;
 }
 
-function LiveFeeds({ sessionId, student }) {
+function LiveFeeds({ sessionId, student, quizMode }) {
   const screenRef = useRef(null);
   const cameraRef = useRef(null);
   const screenTileRef = useRef(null);
@@ -543,6 +557,7 @@ function LiveFeeds({ sessionId, student }) {
   const [activeScreenShares, setActiveScreenShares] = useState(0);
   const [isScreenFullscreen, setIsScreenFullscreen] = useState(false);
   const [isSessionFullscreen, setIsSessionFullscreen] = useState(false);
+  const isOnlineQuiz = quizMode !== "inperson";
 
   async function lockOutStudent(reason) {
     try {
@@ -707,7 +722,7 @@ function LiveFeeds({ sessionId, student }) {
     socket.send(JSON.stringify({
       type: "feed-request",
       requestId,
-      requestedFeeds: { camera: true, screen: true },
+      requestedFeeds: { camera: isOnlineQuiz, screen: true },
       requester: "Lecturer"
     }));
     window.setTimeout(async () => {
@@ -721,7 +736,7 @@ function LiveFeeds({ sessionId, student }) {
       setCameraState((state) => state === "Retry requested" ? "No feed received" : state);
     }, 30000);
   }
-  return <><div className="media-grid" ref={sessionFeedsRef}><div className="media-tile" key="screen"><div className="media-title"><Monitor size={14}/> Shared screen<span className="media-live"><i />{screenState}</span></div><div className="media-frame" ref={screenTileRef}>{screenState === "Live feed" ? <video ref={bindScreenVideo} autoPlay playsInline muted /> : <div className="media-placeholder"><Monitor size={24}/><span>{screenState}</span></div>}<button className="fullscreen-feed-button" type="button" onClick={toggleScreenFullscreen} disabled={!receivedStreams.current.screen}><Maximize2 size={14}/>{isScreenFullscreen ? "Exit full screen" : "Full screen"}</button></div></div><div className="media-tile" key="camera"><div className="media-title"><Video size={14}/> Webcam<span className="media-live"><i />{cameraState}</span></div><div className="media-frame">{cameraState === "Live feed" ? <video ref={bindCameraVideo} autoPlay playsInline muted /> : <div className="media-placeholder"><Video size={24}/><span>{cameraState}</span></div>}</div></div>{isSessionFullscreen && <button className="fullscreen-session-exit" type="button" onClick={toggleSessionFullscreen}>Exit full session view</button>}</div><div className="screen-share-summary"><Monitor size={14}/><strong>{activeScreenShares}</strong> active feed{activeScreenShares === 1 ? "" : "s"} received in this session.{student.reportedDisplayCount ? ` Student reports ${student.reportedDisplayCount} display${student.reportedDisplayCount === "1" ? "" : "s"}.` : " Student display count not reported."}{student.reportedDisplay ? ` Declared shared display: ${student.reportedDisplay}.` : ""}{student.screenReady && student.screenSurface === "monitor" ? " Browser confirms the captured source is an entire-display surface." : " Browser has not confirmed an entire-display surface."}<span>Display declarations are student-reported; quiz mode requires entire-screen sharing.</span></div><div className="live-feed-actions"><span>Check the student's sharing connection if either feed is unavailable.</span><button className="button-secondary" onClick={toggleSessionFullscreen} disabled={activeScreenShares === 0}><Maximize2 size={14}/>{isSessionFullscreen ? "Exit full session view" : "Full session view"}</button><button className="button-secondary" onClick={retryFeeds} disabled={retrying || student.status !== "approved"}><RefreshCw size={14} className={retrying ? "retry-spin" : ""}/>{retrying ? "Checking feeds…" : "Check & retry feeds"}</button></div>{lastFeedRequestMessage && <div className="form-error" style={{ marginTop: 8 }}>{lastFeedRequestMessage}</div>}<div className="live-analysis-card"><Activity size={14}/><span><strong>On-device camera checks</strong>{latestCameraCue ? ` · ${eventTitle(latestCameraCue.type)}${latestCameraCue.payload?.faceCount != null ? ` (${latestCameraCue.payload.faceCount} detected)` : ""} · ${formatTime(latestCameraCue.timestamp)}` : " · Waiting for the first check"}. Face position/count cues are approximate and are not misconduct findings.</span></div></>;
+  return <><div className="media-grid" ref={sessionFeedsRef}><div className="media-tile" key="screen"><div className="media-title"><Monitor size={14}/> {isOnlineQuiz ? "Shared screen" : "Shared quiz tab"}<span className="media-live"><i />{screenState}</span></div><div className="media-frame" ref={screenTileRef}>{screenState === "Live feed" ? <video ref={bindScreenVideo} autoPlay playsInline muted /> : <div className="media-placeholder"><Monitor size={24}/><span>{screenState}</span></div>}<button className="fullscreen-feed-button" type="button" onClick={toggleScreenFullscreen} disabled={!receivedStreams.current.screen}><Maximize2 size={14}/>{isScreenFullscreen ? "Exit full screen" : "Full screen"}</button></div></div>{isOnlineQuiz && <div className="media-tile" key="camera"><div className="media-title"><Video size={14}/> Webcam<span className="media-live"><i />{cameraState}</span></div><div className="media-frame">{cameraState === "Live feed" ? <video ref={bindCameraVideo} autoPlay playsInline muted /> : <div className="media-placeholder"><Video size={24}/><span>{cameraState}</span></div>}</div></div>}{isSessionFullscreen && <button className="fullscreen-session-exit" type="button" onClick={toggleSessionFullscreen}>Exit full session view</button>}</div><div className="screen-share-summary"><Monitor size={14}/><strong>{activeScreenShares}</strong> active feed{activeScreenShares === 1 ? "" : "s"} received in this session.{student.reportedDisplayCount ? ` Student reports ${student.reportedDisplayCount} display${student.reportedDisplayCount === "1" ? "" : "s"}.` : " Student display count not reported."}{student.reportedDisplay ? ` Declared shared display: ${student.reportedDisplay}.` : ""}{isOnlineQuiz ? student.screenReady && student.screenSurface === "monitor" ? " Browser confirms the captured source is an entire-display surface." : " Browser has not confirmed an entire-display surface." : student.screenReady && student.screenSurface === "browser" ? " Browser confirms a shared quiz tab." : " Browser has not confirmed a shared quiz tab."}<span>{isOnlineQuiz ? "Online mode requires webcam plus entire-screen sharing." : "In-person mode monitors only the shared quiz tab."}</span></div><div className="live-feed-actions"><span>{isOnlineQuiz ? "Check the student's webcam or sharing connection if a feed is unavailable." : "Check the student's shared quiz tab if monitoring is unavailable."}</span><button className="button-secondary" onClick={toggleSessionFullscreen} disabled={activeScreenShares === 0}><Maximize2 size={14}/>{isSessionFullscreen ? "Exit full session view" : "Full session view"}</button><button className="button-secondary" onClick={retryFeeds} disabled={retrying || student.status !== "approved"}><RefreshCw size={14} className={retrying ? "retry-spin" : ""}/>{retrying ? "Checking feeds…" : "Check & retry feeds"}</button></div>{lastFeedRequestMessage && <div className="form-error" style={{ marginTop: 8 }}>{lastFeedRequestMessage}</div>}{isOnlineQuiz && <div className="live-analysis-card"><Activity size={14}/><span><strong>On-device camera checks</strong>{latestCameraCue ? ` · ${eventTitle(latestCameraCue.type)}${latestCameraCue.payload?.faceCount != null ? ` (${latestCameraCue.payload.faceCount} detected)` : ""} · ${formatTime(latestCameraCue.timestamp)}` : " · Waiting for the first check"}. Face position/count cues are approximate and are not misconduct findings.</span></div>}</>;
 }
 
 function EventTimeline({ events }) {
@@ -757,7 +772,11 @@ function StudentJoin({ sessionId }) {
   const [feedRequestSecondsLeft, setFeedRequestSecondsLeft] = useState(30);
   const [quizModeStarted, setQuizModeStarted] = useState(false);
   const [faceMonitor, setFaceMonitor] = useState({ state: "idle", count: null, detail: "Local face-presence and position checks start after webcam access." });
+  const [policyWarning, setPolicyWarning] = useState(null);
   const mobileDevice = isMobileBrowser();
+  const quizMode = session?.quizMode || "online";
+  const isOnlineQuiz = quizMode === "online";
+  const isInPersonQuiz = quizMode === "inperson";
   const studentWorkspaceRef = useRef(null);
   const cameraRef = useRef(null);
   const trackingVideoRef = useRef(null);
@@ -776,6 +795,9 @@ function StudentJoin({ sessionId }) {
   const signalingSocketRef = useRef(null);
   const sendOfferRef = useRef(null);
   const missingFeedTimerRef = useRef(null);
+  const policyWarningRef = useRef(null);
+  const policyWarningTimerRef = useRef(null);
+  const policyCountdownTimerRef = useRef(null);
   const bindCameraVideo = useCallback((node) => {
     cameraRef.current = node;
     attachVideoStream(node, cameraStream);
@@ -788,6 +810,44 @@ function StudentJoin({ sessionId }) {
     screenRef.current = node;
     attachVideoStream(node, screenStream);
   }, [screenStream]);
+  const emitStudentEvent = useCallback((type, payload = {}) => {
+    if (!student?.id) return Promise.resolve();
+    return api(`/sessions/${sessionId}/students/${student.id}/events`, {
+      method: "POST",
+      body: JSON.stringify({ type, payload })
+    }).then(() => setEventCount((count) => count + 1)).catch(() => {});
+  }, [sessionId, student?.id]);
+
+  function resetPolicyWarningState() {
+    clearTimeout(policyWarningTimerRef.current);
+    clearInterval(policyCountdownTimerRef.current);
+    policyWarningTimerRef.current = null;
+    policyCountdownTimerRef.current = null;
+    policyWarningRef.current = null;
+    setPolicyWarning(null);
+  }
+
+  function clearPolicyWarning(message) {
+    if (!policyWarningRef.current) return;
+    resetPolicyWarningState();
+    if (message) emitStudentEvent("quiz-monitoring-warning-cleared", { message, quizMode });
+  }
+
+  function startPolicyWarning({ message, seconds, timeoutReason, timeoutEventType, startedEventType }) {
+    if (policyWarningRef.current || sessionEndRef.current) return;
+    const expiresAt = Date.now() + seconds * 1000;
+    const nextWarning = { message, secondsLeft: seconds, expiresAt };
+    policyWarningRef.current = nextWarning;
+    setPolicyWarning(nextWarning);
+    emitStudentEvent(startedEventType, { message, seconds, quizMode });
+    policyCountdownTimerRef.current = setInterval(() => {
+      setPolicyWarning((current) => current ? { ...current, secondsLeft: Math.max(0, Math.ceil((current.expiresAt - Date.now()) / 1000)) } : current);
+    }, 250);
+    policyWarningTimerRef.current = setTimeout(() => {
+      resetPolicyWarningState();
+      lockOutStudentSession(timeoutReason, timeoutEventType);
+    }, seconds * 1000);
+  }
 
   useEffect(() => { api(`/sessions/${sessionId}`).then(setSession).catch((err) => setError(err.message)); }, [sessionId]);
   useEffect(() => () => {
@@ -801,6 +861,9 @@ function StudentJoin({ sessionId }) {
   useEffect(() => () => {
     if (!isViteHotUpdate()) screenStream?.getTracks().forEach((track) => track.stop());
   }, [screenStream]);
+  useEffect(() => () => {
+    resetPolicyWarningState();
+  }, []);
 
   useEffect(() => {
     if (!student || !session || !["setup", "awaiting-review", "changes-requested", "approved"].includes(student.status)) return;
@@ -906,6 +969,7 @@ function StudentJoin({ sessionId }) {
       setStudent((current) => current ? { ...current, status: "ended" } : current);
       clearTimeout(missingFeedTimerRef.current);
       missingFeedTimerRef.current = null;
+      resetPolicyWarningState();
     }
   }
 
@@ -924,7 +988,8 @@ function StudentJoin({ sessionId }) {
     if (!student || student.status !== "approved") return;
     const hasCamera = Boolean(cameraStream?.active);
     const hasScreen = Boolean(screenStream?.active);
-    if (hasCamera && hasScreen) {
+    const requiredFeedsAvailable = hasScreen && (!isOnlineQuiz || hasCamera);
+    if (requiredFeedsAvailable) {
       clearTimeout(missingFeedTimerRef.current);
       missingFeedTimerRef.current = null;
       return;
@@ -937,17 +1002,47 @@ function StudentJoin({ sessionId }) {
       clearTimeout(missingFeedTimerRef.current);
       missingFeedTimerRef.current = null;
     };
-  }, [student?.id, student?.status, cameraStream, screenStream]);
+  }, [student?.id, student?.status, cameraStream, screenStream, isOnlineQuiz]);
 
   useEffect(() => {
     if (!quizModeStarted || student?.status !== "approved") return;
-    const onFullscreenChange = () => {
-      if (document.fullscreenElement) return;
-      lockOutStudentSession("Quiz fullscreen mode was exited during an active quiz.", "quiz-mode-fullscreen-exited");
+    const isCompliant = () => document.visibilityState === "visible" && document.hasFocus() && Boolean(document.fullscreenElement);
+    const recoveryMessage = isInPersonQuiz
+      ? "Return to the monitored quiz tab within 5 seconds or the session will end."
+      : "Return to the monitored online quiz view within 10 seconds or the session will end.";
+    const clearMessage = isInPersonQuiz
+      ? "Student returned to the monitored quiz tab in time."
+      : "Student returned to the monitored online quiz view in time.";
+    const timeoutReason = isInPersonQuiz
+      ? "Student left the monitored quiz tab for more than 5 seconds during an in-person quiz."
+      : "Student left the monitored online quiz view for more than 10 seconds during an online quiz.";
+    const startedEventType = isInPersonQuiz ? "inperson-quiz-tab-warning-started" : "online-quiz-monitor-warning-started";
+    const timeoutEventType = isInPersonQuiz ? "inperson-quiz-tab-timeout-ended" : "online-quiz-monitor-timeout-ended";
+    const evaluatePolicy = () => {
+      if (isCompliant()) {
+        clearPolicyWarning(clearMessage);
+        return;
+      }
+      startPolicyWarning({
+        message: recoveryMessage,
+        seconds: isInPersonQuiz ? 5 : 10,
+        timeoutReason,
+        timeoutEventType,
+        startedEventType
+      });
     };
-    document.addEventListener("fullscreenchange", onFullscreenChange);
-    return () => document.removeEventListener("fullscreenchange", onFullscreenChange);
-  }, [quizModeStarted, student?.status]);
+    evaluatePolicy();
+    window.addEventListener("blur", evaluatePolicy);
+    window.addEventListener("focus", evaluatePolicy);
+    document.addEventListener("visibilitychange", evaluatePolicy);
+    document.addEventListener("fullscreenchange", evaluatePolicy);
+    return () => {
+      window.removeEventListener("blur", evaluatePolicy);
+      window.removeEventListener("focus", evaluatePolicy);
+      document.removeEventListener("visibilitychange", evaluatePolicy);
+      document.removeEventListener("fullscreenchange", evaluatePolicy);
+    };
+  }, [quizModeStarted, student?.status, isInPersonQuiz, quizMode]);
 
   useEffect(() => {
     if (!student || !cameraStream) return;
@@ -1217,10 +1312,11 @@ function StudentJoin({ sessionId }) {
     let stream;
     try {
       setError("");
-      stream = await navigator.mediaDevices.getDisplayMedia({ video: { displaySurface: "monitor", frameRate: 15 }, audio: false });
+      stream = await navigator.mediaDevices.getDisplayMedia(isOnlineQuiz ? { video: { displaySurface: "monitor", frameRate: 15 }, audio: false } : { video: { frameRate: 15 }, audio: false, preferCurrentTab: true });
       const track = stream.getVideoTracks()[0];
       const surface = track?.getSettings().displaySurface;
-      if (!isEntireDisplaySurface(surface)) {
+      const validSurface = isOnlineQuiz ? isEntireDisplaySurface(surface) : surface === "browser";
+      if (!validSurface) {
         stream.getTracks().forEach((item) => item.stop());
         setScreenStream(null);
         await api(`/sessions/${sessionId}/students/${student.id}`, { method: "PATCH", body: JSON.stringify({ screenReady: false, screenSurface: surface || "unknown" }) });
@@ -1228,7 +1324,9 @@ function StudentJoin({ sessionId }) {
           method: "POST",
           body: JSON.stringify({ type: "screen-share-source-invalid", payload: { surface: surface || "unknown", message: "Non-entire-screen source selected for assessment monitoring." } })
         }).catch(() => {});
-        setError(surface ? "Please choose Entire Screen in the browser picker. Window and browser-tab sharing are not accepted." : "This browser cannot confirm that the entire screen is being shared. Use a supported browser that reports display surface type.");
+        setError(isOnlineQuiz
+          ? surface ? "Please choose Entire Screen in the browser picker. Window and browser-tab sharing are not accepted." : "This browser cannot confirm that the entire screen is being shared. Use a supported browser that reports display surface type."
+          : surface ? "Please choose the quiz browser tab in the browser picker. Entire-screen and window sharing are not used for in-person mode." : "This browser cannot confirm that the quiz tab is being shared. Use a supported desktop browser.");
         return false;
       }
       setScreenStream(stream);
@@ -1388,12 +1486,16 @@ function StudentJoin({ sessionId }) {
 
   async function startQuizMode() {
     if (student?.status !== "approved") return;
-    if (!cameraStream?.active || !screenStream?.active) {
-      setError("Enable webcam and entire-screen sharing before starting quiz mode.");
+    if ((isOnlineQuiz && !cameraStream?.active) || !screenStream?.active) {
+      setError(isOnlineQuiz ? "Enable webcam and entire-screen sharing before starting quiz mode." : "Share the quiz tab before starting in-person monitoring mode.");
       return;
     }
-    if (student?.screenSurface !== "monitor") {
-      setError("Quiz mode requires entire-screen sharing.");
+    if (isOnlineQuiz && student?.screenSurface !== "monitor") {
+      setError("Online quiz mode requires entire-screen sharing.");
+      return;
+    }
+    if (isInPersonQuiz && student?.screenSurface !== "browser") {
+      setError("In-person quiz mode requires sharing the quiz browser tab only.");
       return;
     }
     try {
@@ -1403,7 +1505,7 @@ function StudentJoin({ sessionId }) {
       setQuizModeStarted(true);
       await api(`/sessions/${sessionId}/students/${student.id}/events`, {
         method: "POST",
-        body: JSON.stringify({ type: "quiz-mode-started", payload: { assignmentHost: session.assignmentHost || "Not declared" } })
+        body: JSON.stringify({ type: "quiz-mode-started", payload: { assignmentHost: session.assignmentHost || "Not declared", quizMode } })
       });
     } catch {
       setError("Fullscreen could not be started. Allow fullscreen to begin quiz mode.");
@@ -1487,19 +1589,20 @@ function StudentJoin({ sessionId }) {
       <div className="student-topline"><a className="student-brand" href="/"><span className="brand-mark"><ShieldCheck size={17}/></span>Proctor Buddy</a><div className="student-session-tag"><span className={`secure-dot ${isApproved ? "" : "amber-dot"}`}/>{isApproved ? "Proctoring active" : "Pre-assessment check"}</div><button className="student-exit" onClick={endSession}><LogOut size={15}/> Exit</button></div>
       <div className="student-main">
         <div className="student-progress"><span className="done"><Check size={12}/> Join</span><i/><span className={student.status !== "setup" ? "done" : "current"}>{student.status !== "setup" ? <Check size={12}/> : "2"} Setup</span><i/><span className={isApproved ? "done" : student.status === "awaiting-review" ? "current" : ""}>{isApproved ? <Check size={12}/> : "3"} Review</span><i/><span className={isApproved ? "current" : ""}>Quiz</span></div>
-        {student.status === "ended" ? <div className="awaiting-card"><div className="waiting-icon"><CheckCircle2 size={24}/></div><div className="eyebrow">SESSION CLOSED</div><h1>This assessment has ended</h1><p>Your camera and screen sharing have been stopped. Contact your lecturer if you need help.</p></div> : isApproved ? <div className="approved-view">{error && <div className="form-error student-form-error"><ShieldAlert size={15}/><span>{error}</span>{!cameraStream?.active && <button className="button-secondary" onClick={enableCamera}>Enable webcam</button>}{!screenStream?.active && <button className="button-secondary" onClick={shareScreen}>Share entire screen</button>}</div>}<div className="approval-success"><div className="success-ring"><CheckCircle2 size={31}/></div><div className="eyebrow">YOU’RE ALL SET</div><h1>Session approved</h1><p>Your lecturer approved your setup. Keep this tab open, keep webcam on, and keep entire-screen sharing enabled during your quiz.</p>{student.reviewMessage && <div className="student-review-message"><strong>Message from your lecturer</strong><p>{student.reviewMessage}</p></div>}</div><div className="live-preview-grid"><div className="live-preview-card"><div><Monitor size={15}/> Shared screen <span className="live-label"><i/>LIVE</span></div><video ref={bindScreenVideo} autoPlay playsInline muted /></div><div className="live-preview-card"><div><Video size={15}/> Webcam <span className="live-label"><i/>LIVE</span></div><video ref={bindCameraVideo} autoPlay playsInline muted /></div></div><div className="monitoring-card"><div className="monitoring-symbol"><Activity size={19}/></div><div><strong>Monitoring is active</strong><span>Your lecturer can see the live webcam and full-screen feed. Approximate face presence/count and coarse face-position checks run locally on your device and are not misconduct findings.</span></div><span className="event-counter">{eventCount} events</span></div><div className="student-quiz-note"><BookOpen size={17}/><span><strong>Ready for your quiz?</strong><br/>Quiz host set by lecturer: {session.assignmentHost || "Not set"}. Start quiz mode to lock fullscreen.</span><ArrowUpRight size={16}/></div><button className="button-primary full-button" onClick={startQuizMode} disabled={quizModeStarted}>{quizModeStarted ? "Quiz mode active" : "Start quiz mode (fullscreen)"}</button><button className="button-secondary full-button end-button" onClick={endSession}>End monitored session</button></div> : student.status === "changes-requested" ? <div className="awaiting-card retry-request-card"><div className="waiting-icon"><RefreshCw size={24}/></div><div className="eyebrow">REVIEW REQUESTED</div><h1>Please update your setup</h1><p>{student.reviewMessage || "Your lecturer has requested another background scan."}</p><button className="button-primary" onClick={retrySetup} disabled={busy}>I’ve addressed this — retry scan<ArrowRight size={16}/></button></div> : student.status === "awaiting-review" ? <div className="awaiting-card"><div className="waiting-icon"><Clock3 size={24}/></div><div className="eyebrow">SETUP SUBMITTED</div><h1>Waiting for your lecturer</h1><p>Your background check has been submitted. Your lecturer will review it before you can start.</p><div className="waiting-progress"><span/><span/><span className="pulse-dot"/></div><small>This page will update automatically after the review.</small></div> : <div className="setup-content">
-          <div className="setup-intro"><div className="eyebrow">STEP 2 OF 4 · DEVICE CHECK</div><h1>Set up your space</h1><p>Enable your webcam and share your entire screen for the quiz. Approximate face-presence/count and coarse face-position checks run locally; these cues may be inaccurate and are not misconduct findings.</p></div>
+        {student.status === "ended" ? <div className="awaiting-card"><div className="waiting-icon"><CheckCircle2 size={24}/></div><div className="eyebrow">SESSION CLOSED</div><h1>This assessment has ended</h1><p>Your camera and screen sharing have been stopped. Contact your lecturer if you need help.</p></div> : isApproved ? <div className="approved-view">{error && <div className="form-error student-form-error"><ShieldAlert size={15}/><span>{error}</span>{isOnlineQuiz && !cameraStream?.active && <button className="button-secondary" onClick={enableCamera}>Enable webcam</button>}{!screenStream?.active && <button className="button-secondary" onClick={shareScreen}>{isOnlineQuiz ? "Share entire screen" : "Share quiz tab"}</button>}</div>}<div className="approval-success"><div className="success-ring"><CheckCircle2 size={31}/></div><div className="eyebrow">YOU’RE ALL SET</div><h1>Session approved</h1><p>{isOnlineQuiz ? "Your lecturer approved your setup. Keep this tab open, keep webcam on, and keep entire-screen sharing enabled during your quiz." : "Your lecturer approved your setup. Keep the shared quiz tab open and return within 5 seconds if you leave fullscreen or switch away."}</p>{student.reviewMessage && <div className="student-review-message"><strong>Message from your lecturer</strong><p>{student.reviewMessage}</p></div>}</div><div className="live-preview-grid"><div className="live-preview-card"><div><Monitor size={15}/> {isOnlineQuiz ? "Shared screen" : "Shared quiz tab"} <span className="live-label"><i/>LIVE</span></div><video ref={bindScreenVideo} autoPlay playsInline muted /></div>{isOnlineQuiz && <div className="live-preview-card"><div><Video size={15}/> Webcam <span className="live-label"><i/>LIVE</span></div><video ref={bindCameraVideo} autoPlay playsInline muted /></div>}</div><div className="monitoring-card"><div className="monitoring-symbol"><Activity size={19}/></div><div><strong>{isOnlineQuiz ? "Online monitoring is active" : "Tab monitoring is active"}</strong><span>{isOnlineQuiz ? "Your lecturer can see the live webcam and full-screen feed. Approximate face presence/count and coarse face-position checks run locally on your device and are not misconduct findings." : "Your lecturer can see the shared quiz tab only. If you leave fullscreen, switch tabs, or move to another window, you must return within 5 seconds."}</span></div><span className="event-counter">{eventCount} events</span></div><div className="student-quiz-note"><BookOpen size={17}/><span><strong>Ready for your quiz?</strong><br/>Quiz host set by lecturer: {session.assignmentHost || "Not set"}. Start quiz mode to lock fullscreen.</span><ArrowUpRight size={16}/></div><button className="button-primary full-button" onClick={startQuizMode} disabled={quizModeStarted}>{quizModeStarted ? "Quiz mode active" : `Start ${quizModeLabel(quizMode).toLowerCase()} quiz mode`}</button><button className="button-secondary full-button end-button" onClick={endSession}>End monitored session</button></div> : student.status === "changes-requested" ? <div className="awaiting-card retry-request-card"><div className="waiting-icon"><RefreshCw size={24}/></div><div className="eyebrow">REVIEW REQUESTED</div><h1>Please update your setup</h1><p>{student.reviewMessage || "Your lecturer has requested another background scan."}</p><button className="button-primary" onClick={retrySetup} disabled={busy}>I’ve addressed this — retry scan<ArrowRight size={16}/></button></div> : student.status === "awaiting-review" ? <div className="awaiting-card"><div className="waiting-icon"><Clock3 size={24}/></div><div className="eyebrow">SETUP SUBMITTED</div><h1>Waiting for your lecturer</h1><p>Your background check has been submitted. Your lecturer will review it before you can start.</p><div className="waiting-progress"><span/><span/><span className="pulse-dot"/></div><small>This page will update automatically after the review.</small></div> : <div className="setup-content">
+          <div className="setup-intro"><div className="eyebrow">STEP 2 OF 4 · DEVICE CHECK</div><h1>Set up your space</h1><p>{isOnlineQuiz ? "Enable your webcam and share your entire screen for the quiz. Approximate face-presence/count and coarse face-position checks run locally; these cues may be inaccurate and are not misconduct findings." : "Enable your webcam for the walkthrough review, then share only the quiz tab for the in-person quiz. Leaving fullscreen or switching away from the tab starts a 5-second return timer."}</p></div>
             <div className="device-grid">
-              <div className={`device-card ${cameraStream ? "device-ready" : ""}`}><div className="device-card-head"><div className="device-icon"><Video size={18}/></div><span className={cameraStream ? "device-status ready" : "device-status"}><i/>{cameraStream ? "Enabled" : "Not enabled"}</span></div><h3>Webcam</h3><p>Allow camera access for the walkthrough and monitored session.</p>{cameraStream ? <div className="mini-video"><video ref={bindCameraVideo} autoPlay playsInline muted/><span><CheckCircle2 size={13}/> Camera preview</span></div> : <button className="button-secondary device-button" onClick={enableCamera}><Video size={15}/> Enable webcam</button>}</div>
-              <div className={`device-card ${screenStream ? "device-ready" : ""}`}><div className="device-card-head"><div className="device-icon screen-icon"><Monitor size={18}/></div><span className={screenStream ? "device-status ready" : "device-status"}><i/>{screenStream ? "Entire screen shared" : "Not sharing"}</span></div><h3>Entire screen</h3><p>Share your full display. Switching tabs on that screen will be flagged in monitoring logs.</p>{!screenStream && <div className="display-declaration"><label className="field-label">Lecturer-set quiz host<input readOnly value={session.assignmentHost || "Not set by lecturer yet"} /></label><small>{session.assignmentHost ? "Your lecturer set where the assignment is hosted." : "Wait for your lecturer to set the assignment host before submitting setup."}</small>{mobileDevice && <small>Mobile browsers may not support verified entire-screen sharing for secure quiz monitoring. If this fails, continue on a laptop/desktop browser.</small>}</div>}{screenStream ? <div className="mini-video"><video ref={bindScreenVideo} autoPlay playsInline muted/><span><CheckCircle2 size={13}/> Screen preview</span></div> : <button className="button-secondary device-button" onClick={shareScreen}><Monitor size={15}/> Share entire screen</button>}</div>
+              <div className={`device-card ${cameraStream ? "device-ready" : ""}`}><div className="device-card-head"><div className="device-icon"><Video size={18}/></div><span className={cameraStream ? "device-status ready" : "device-status"}><i/>{cameraStream ? "Enabled" : "Not enabled"}</span></div><h3>Webcam</h3><p>{isOnlineQuiz ? "Allow camera access for the walkthrough and monitored online session." : "Allow camera access for the walkthrough review before the in-person quiz starts."}</p>{cameraStream ? <div className="mini-video"><video ref={bindCameraVideo} autoPlay playsInline muted/><span><CheckCircle2 size={13}/> Camera preview</span></div> : <button className="button-secondary device-button" onClick={enableCamera}><Video size={15}/> Enable webcam</button>}</div>
+              <div className={`device-card ${screenStream ? "device-ready" : ""}`}><div className="device-card-head"><div className="device-icon screen-icon"><Monitor size={18}/></div><span className={screenStream ? "device-status ready" : "device-status"}><i/>{screenStream ? isOnlineQuiz ? "Entire screen shared" : "Quiz tab shared" : "Not sharing"}</span></div><h3>{isOnlineQuiz ? "Entire screen" : "Quiz tab"}</h3><p>{isOnlineQuiz ? "Share your full display. Switching tabs or windows will trigger a 10-second return alert." : "Share only the quiz tab. Switching tabs, windows, or leaving fullscreen triggers a 5-second return alert."}</p>{!screenStream && <div className="display-declaration"><label className="field-label">Lecturer-set quiz host<input readOnly value={session.assignmentHost || "Not set by lecturer yet"} /></label><small>{session.assignmentHost ? "Your lecturer set where the assignment is hosted." : "Wait for your lecturer to set the assignment host before submitting setup."}</small>{mobileDevice && <small>Mobile browsers may not support verified {isOnlineQuiz ? "entire-screen" : "quiz-tab"} sharing for secure quiz monitoring. If this fails, continue on a laptop/desktop browser.</small>}</div>}{screenStream ? <div className="mini-video"><video ref={bindScreenVideo} autoPlay playsInline muted/><span><CheckCircle2 size={13}/> Screen preview</span></div> : <button className="button-secondary device-button" onClick={shareScreen}><Monitor size={15}/>{isOnlineQuiz ? "Share entire screen" : "Share quiz tab"}</button>}</div>
             </div>
             <div className="camera-analysis-card"><div className="analysis-indicator"><span className={`analysis-pulse ${faceMonitor.state === "present" ? "on" : ""}`}/><div><strong>{cameraStream ? "Camera checks active" : "Camera checks not started"}</strong><span>{cameraStream ? faceMonitor.detail : "Checks start when webcam access is enabled."}</span></div></div><span className="analysis-local">ON DEVICE</span></div>
             <div className="scan-card background-video-card"><div className="eyebrow">10-SECOND WALKTHROUGH</div><h2>Record a short video of your background</h2><p>Move your webcam slowly to show the area around your workspace. Maximum upload size: 3.5 MB.</p>{scanVideoUrl && <video className="background-video-preview" style={{ width: "100%", maxHeight: 320, objectFit: "contain" }} src={scanVideoUrl} controls playsInline/>}{recordingScan ? <div className="recording-controls" style={{ display: "flex", alignItems: "center", gap: 10 }}><span className="recording-indicator"><i/>Recording (up to 10 seconds)</span><button className="button-secondary" onClick={finishBackgroundScan}>Stop recording</button></div> : <div className="recording-controls" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}><button className="button-secondary" onClick={recordBackgroundScan} disabled={!cameraStream || busy}><Video size={15}/>{scanVideoUrl ? "Record again" : "Record background video"}</button>{scanVideoUrl && <><button className="button-secondary" onClick={() => { scanVideoBlobRef.current = null; setScanVideoUrl(""); setScanVideoSize(0); if (scanVideoUrlRef.current) URL.revokeObjectURL(scanVideoUrlRef.current); scanVideoUrlRef.current = ""; }}>Remove video</button><span className="video-size-note">{(scanVideoSize / (1024 * 1024)).toFixed(2)} MB</span></>}</div>}<div className="scan-hint"><Eye size={15}/> Approximate on-device face-presence and position cues are only a review aid; your lecturer reviews the video.</div></div>
-            {error && <div className="form-error student-form-error"><ShieldAlert size={15}/><span>{error}</span>{!cameraStream && <button className="button-secondary" onClick={enableCamera}>Enable webcam</button>}{!screenStream && <button className="button-secondary" onClick={shareScreen}>Share entire screen</button>}</div>}
+            {error && <div className="form-error student-form-error"><ShieldAlert size={15}/><span>{error}</span>{!cameraStream && <button className="button-secondary" onClick={enableCamera}>Enable webcam</button>}{!screenStream && <button className="button-secondary" onClick={shareScreen}>{isOnlineQuiz ? "Share entire screen" : "Share quiz tab"}</button>}</div>}
             <div className="setup-footer"><div><LockKeyhole size={15}/><span>Camera and screen access can be stopped in your browser at any time.</span></div><button className="button-primary" onClick={submitScan} disabled={busy || recordingScan || !cameraStream || !screenStream || !scanVideoBlobRef.current || !session.assignmentHost}>{busy ? analyzingObjects ? "Analyzing walkthrough…" : "Submitting…" : "Submit setup for review"}<ArrowRight size={16}/></button></div>
           </div>}
            </div>
-          {pendingFeedRequest && <div className="feed-request-popup"><div className="feed-request-popup-card"><h4>Reconnect request</h4><p><strong>{pendingFeedRequest.requester}</strong> requested to reconnect your {pendingFeedRequest.requestedFeeds?.camera && pendingFeedRequest.requestedFeeds?.screen ? "webcam and shared-screen" : pendingFeedRequest.requestedFeeds?.camera ? "webcam" : "shared-screen"} feed{pendingFeedRequest.requestedFeeds?.camera && pendingFeedRequest.requestedFeeds?.screen ? "s" : ""}.</p><small>Auto-timeout in {feedRequestSecondsLeft}s</small><div className="feed-request-popup-actions">{pendingFeedRequest.requestedFeeds?.camera && !cameraStream?.active && <button className="button-secondary" onClick={enableCamera}>Enable webcam</button>}{pendingFeedRequest.requestedFeeds?.screen && !screenStream?.active && <button className="button-secondary" onClick={shareScreen}>Share entire screen</button>}<button className="button-secondary" onClick={() => respondToFeedRequest(false)}>Not now</button><button className="button-primary compact" onClick={() => respondToFeedRequest(true)} disabled={(pendingFeedRequest.requestedFeeds?.camera && !cameraStream?.active) || (pendingFeedRequest.requestedFeeds?.screen && !screenStream?.active)}>Approve reconnect</button></div></div></div>}
+          {pendingFeedRequest && <div className="feed-request-popup"><div className="feed-request-popup-card"><h4>Reconnect request</h4><p><strong>{pendingFeedRequest.requester}</strong> requested to reconnect your {pendingFeedRequest.requestedFeeds?.camera && pendingFeedRequest.requestedFeeds?.screen ? "webcam and shared-screen" : pendingFeedRequest.requestedFeeds?.camera ? "webcam" : "shared-screen"} feed{pendingFeedRequest.requestedFeeds?.camera && pendingFeedRequest.requestedFeeds?.screen ? "s" : ""}.</p><small>Auto-timeout in {feedRequestSecondsLeft}s</small><div className="feed-request-popup-actions">{pendingFeedRequest.requestedFeeds?.camera && !cameraStream?.active && <button className="button-secondary" onClick={enableCamera}>Enable webcam</button>}{pendingFeedRequest.requestedFeeds?.screen && !screenStream?.active && <button className="button-secondary" onClick={shareScreen}>{isOnlineQuiz ? "Share entire screen" : "Share quiz tab"}</button>}<button className="button-secondary" onClick={() => respondToFeedRequest(false)}>Not now</button><button className="button-primary compact" onClick={() => respondToFeedRequest(true)} disabled={(pendingFeedRequest.requestedFeeds?.camera && !cameraStream?.active) || (pendingFeedRequest.requestedFeeds?.screen && !screenStream?.active)}>Approve reconnect</button></div></div></div>}
+          {policyWarning && <div className="feed-request-popup"><div className="feed-request-popup-card"><h4>Return to quiz</h4><p>{policyWarning.message}</p><small>{policyWarning.secondsLeft}s remaining</small></div></div>}
           {lowLightAssist && <div className="low-light-assist" aria-hidden="true"><div className="low-light-assist-tip">Low webcam light detected · brighten your face in view</div></div>}
       <footer className="student-footer"><span><ShieldCheck size={14}/> Proctor Buddy · Assessment workspace</span><a href="#" onClick={(event) => { event.preventDefault(); alert("Contact your lecturer for help with this assessment."); }}>Need help?</a></footer><video ref={trackingVideoRef} className="tracking-video" autoPlay playsInline muted/><canvas ref={canvasRef} width="720" height="405" hidden/>
     </div>
@@ -1515,13 +1618,13 @@ function StatusPill({ status }) {
 function StatusDot({ status }) { return <span className={`status-dot ${status === "awaiting-review" ? "needs" : status === "approved" ? "approved" : ""}`} title={statusLabel(status)} />; }
 function initials(name = "") { return name.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase(); }
 function eventSeverity(type) {
-  const suspicious = new Set(["movement-suspicious", "camera-movement-suspicious", "eye-head-shift-cue", "camera-eye-head-shift-cue", "face-not-detected", "camera-face-not-detected", "multiple-faces-detected", "camera-multiple-faces-detected", "screen-sharing-stopped", "session-tab-hidden", "screen-proctor-tab-hidden", "screen-tab-switch-flagged", "webcam-feed-stopped", "camera-webcam-feed-stopped", "face-tracking-unavailable", "camera-face-tracking-unavailable", "low-light-warning", "camera-low-light-warning", "screen-context-switch-cue", "screen-share-source-invalid", "lecturer-feed-request-timeout-lockout", "student-locked-out", "student-locked-out-missing-feed", "quiz-mode-fullscreen-exited"]);
-  const okay = new Set(["assessment-monitoring-started", "monitoring-heartbeat", "camera-monitoring-heartbeat", "screen-monitoring-heartbeat", "movement-okay", "camera-movement-okay", "eye-head-centered", "camera-eye-head-centered", "face-detected-again", "camera-face-detected-again", "student-approved", "full-screen-sharing-started", "screen-sharing-started", "webcam-enabled", "camera-webcam-enabled", "light-normalized", "camera-light-normalized", "assignment-host-declared", "assignment-host-confirmed", "quiz-mode-started"]);
+  const suspicious = new Set(["movement-suspicious", "camera-movement-suspicious", "eye-head-shift-cue", "camera-eye-head-shift-cue", "face-not-detected", "camera-face-not-detected", "multiple-faces-detected", "camera-multiple-faces-detected", "screen-sharing-stopped", "session-tab-hidden", "screen-proctor-tab-hidden", "screen-tab-switch-flagged", "webcam-feed-stopped", "camera-webcam-feed-stopped", "face-tracking-unavailable", "camera-face-tracking-unavailable", "low-light-warning", "camera-low-light-warning", "screen-context-switch-cue", "screen-share-source-invalid", "lecturer-feed-request-timeout-lockout", "student-locked-out", "student-locked-out-missing-feed", "quiz-mode-fullscreen-exited", "inperson-quiz-tab-warning-started", "online-quiz-monitor-warning-started", "inperson-quiz-tab-timeout-ended", "online-quiz-monitor-timeout-ended"]);
+  const okay = new Set(["assessment-monitoring-started", "monitoring-heartbeat", "camera-monitoring-heartbeat", "screen-monitoring-heartbeat", "movement-okay", "camera-movement-okay", "eye-head-centered", "camera-eye-head-centered", "face-detected-again", "camera-face-detected-again", "student-approved", "full-screen-sharing-started", "screen-sharing-started", "webcam-enabled", "camera-webcam-enabled", "light-normalized", "camera-light-normalized", "assignment-host-declared", "assignment-host-confirmed", "quiz-mode-started", "quiz-monitoring-warning-cleared"]);
   if (suspicious.has(type)) return "suspicious";
   if (okay.has(type)) return "ok";
   return "info";
 }
-function eventTitle(type) { return ({ "assessment-monitoring-started": "Monitoring started", "monitoring-heartbeat": "Session active", "camera-monitoring-heartbeat": "Camera monitoring active", "screen-monitoring-heartbeat": "Screen monitoring active", "screen-sharing-stopped": "Screen sharing stopped", "session-tab-hidden": "Proctoring tab changed", "screen-proctor-tab-hidden": "Proctoring tab changed", "screen-tab-switch-flagged": "Tab switch flagged", "background-scan-submitted": "Background scan submitted", "background-video-submitted": "Background video submitted", "student-approved": "Student approved", "scan-changes-requested": "Retry requested", "student-ended-session": "Session ended", "face-count-observed": "On-device face count", "camera-face-count-observed": "Webcam face count", "face-not-detected": "Face not visible", "camera-face-not-detected": "Face not visible", "multiple-faces-detected": "Multiple faces detected", "camera-multiple-faces-detected": "Multiple faces detected", "face-detected-again": "Face visible again", "camera-face-detected-again": "Face visible again", "movement-suspicious": "Head movement flagged", "camera-movement-suspicious": "Head movement flagged", "movement-okay": "Head movement settled", "camera-movement-okay": "Head movement settled", "eye-head-shift-cue": "Eye/head shift cue", "camera-eye-head-shift-cue": "Eye/head shift cue", "eye-head-centered": "Eye/head centered", "camera-eye-head-centered": "Eye/head centered", "ambient-light-sample": "Ambient light sample", "camera-ambient-light-sample": "Ambient light sample", "low-light-warning": "Low-light warning", "camera-low-light-warning": "Low-light warning", "light-normalized": "Lighting normalized", "camera-light-normalized": "Lighting normalized", "screen-context-switch-cue": "Possible tab/window switching", "webcam-enabled": "Webcam enabled", "camera-webcam-enabled": "Webcam enabled", "webcam-feed-stopped": "Webcam feed stopped", "camera-webcam-feed-stopped": "Webcam feed stopped", "full-screen-sharing-started": "Full-screen sharing started", "screen-sharing-started": "Full-screen sharing started", "face-tracking-unavailable": "Face tracking unavailable", "camera-face-tracking-unavailable": "Face tracking unavailable", "screen-share-source-invalid": "Invalid share source", "assignment-host-declared": "Assignment host declared", "assignment-host-confirmed": "Assignment host confirmed", "quiz-mode-started": "Quiz mode started", "quiz-mode-fullscreen-exited": "Quiz fullscreen exited", "lecturer-feed-request-timeout-lockout": "Locked out after reconnect timeout", "student-locked-out": "Student locked out", "student-locked-out-missing-feed": "Locked out for missing feed" }[type] || type.replaceAll("-", " ").replace(/^\w/, (letter) => letter.toUpperCase())); }
+function eventTitle(type) { return ({ "assessment-monitoring-started": "Monitoring started", "monitoring-heartbeat": "Session active", "camera-monitoring-heartbeat": "Camera monitoring active", "screen-monitoring-heartbeat": "Screen monitoring active", "screen-sharing-stopped": "Screen sharing stopped", "session-tab-hidden": "Proctoring tab changed", "screen-proctor-tab-hidden": "Proctoring tab changed", "screen-tab-switch-flagged": "Tab switch flagged", "background-scan-submitted": "Background scan submitted", "background-video-submitted": "Background video submitted", "student-approved": "Student approved", "scan-changes-requested": "Retry requested", "student-ended-session": "Session ended", "face-count-observed": "On-device face count", "camera-face-count-observed": "Webcam face count", "face-not-detected": "Face not visible", "camera-face-not-detected": "Face not visible", "multiple-faces-detected": "Multiple faces detected", "camera-multiple-faces-detected": "Multiple faces detected", "face-detected-again": "Face visible again", "camera-face-detected-again": "Face visible again", "movement-suspicious": "Head movement flagged", "camera-movement-suspicious": "Head movement flagged", "movement-okay": "Head movement settled", "camera-movement-okay": "Head movement settled", "eye-head-shift-cue": "Eye/head shift cue", "camera-eye-head-shift-cue": "Eye/head shift cue", "eye-head-centered": "Eye/head centered", "camera-eye-head-centered": "Eye/head centered", "ambient-light-sample": "Ambient light sample", "camera-ambient-light-sample": "Ambient light sample", "low-light-warning": "Low-light warning", "camera-low-light-warning": "Low-light warning", "light-normalized": "Lighting normalized", "camera-light-normalized": "Lighting normalized", "screen-context-switch-cue": "Possible tab/window switching", "webcam-enabled": "Webcam enabled", "camera-webcam-enabled": "Webcam enabled", "webcam-feed-stopped": "Webcam feed stopped", "camera-webcam-feed-stopped": "Webcam feed stopped", "full-screen-sharing-started": "Full-screen sharing started", "screen-sharing-started": "Full-screen sharing started", "face-tracking-unavailable": "Face tracking unavailable", "camera-face-tracking-unavailable": "Face tracking unavailable", "screen-share-source-invalid": "Invalid share source", "assignment-host-declared": "Assignment host declared", "assignment-host-confirmed": "Assignment host confirmed", "quiz-mode-started": "Quiz mode started", "quiz-mode-fullscreen-exited": "Quiz fullscreen exited", "lecturer-feed-request-timeout-lockout": "Locked out after reconnect timeout", "student-locked-out": "Student locked out", "student-locked-out-missing-feed": "Locked out for missing feed", "inperson-quiz-tab-warning-started": "In-person tab warning", "online-quiz-monitor-warning-started": "Online monitoring warning", "quiz-monitoring-warning-cleared": "Student returned to quiz", "inperson-quiz-tab-timeout-ended": "In-person tab timeout", "online-quiz-monitor-timeout-ended": "Online monitoring timeout" }[type] || type.replaceAll("-", " ").replace(/^\w/, (letter) => letter.toUpperCase())); }
 function captureFrame(video, canvas) {
   if (!video || !canvas || !video.videoWidth) return null;
   const context = canvas.getContext("2d");
