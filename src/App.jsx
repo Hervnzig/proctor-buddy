@@ -796,6 +796,7 @@ function StudentJoin({ sessionId }) {
   const trackingVideoRef = useRef(null);
   const screenRef = useRef(null);
   const quizTabRef = useRef(null);
+  const quizTabWindowRef = useRef(null);
   const canvasRef = useRef(null);
   const stopFaceTrackingRef = useRef(null);
   const sessionEndRef = useRef(false);
@@ -1619,11 +1620,21 @@ function StudentJoin({ sessionId }) {
       return;
     }
     try {
-      // For in-person: fullscreen the shared tab preview card.
-      // For online: fullscreen the entire student workspace so the page goes fullscreen.
-      if (!document.fullscreenElement) {
-        const target = isInPersonQuiz ? sharedTabFullscreenRef.current : studentWorkspaceRef.current;
-        await target?.requestFullscreen?.();
+      if (isInPersonQuiz) {
+        // For in-person: fullscreen the shared tab preview card.
+        if (!document.fullscreenElement) {
+          await sharedTabFullscreenRef.current?.requestFullscreen?.();
+        }
+      } else {
+        // For online: focus the quiz tab window so it becomes the active view,
+        // then the full-screen share captures the quiz on the student's monitor.
+        const quizWin = quizTabWindowRef.current;
+        if (quizWin && !quizWin.closed) {
+          quizWin.focus();
+        } else if (session.quizUrl) {
+          // Quiz tab was closed or not opened yet — re-open and focus it.
+          quizTabWindowRef.current = window.open(session.quizUrl, "proctor-buddy-quiz");
+        }
       }
       setQuizModeStarted(true);
       await api(`/sessions/${sessionId}/students/${student.id}/events`, {
@@ -1631,7 +1642,7 @@ function StudentJoin({ sessionId }) {
         body: JSON.stringify({ type: "quiz-mode-started", payload: { assignmentHost: session.assignmentHost || "Not declared", quizMode } })
       });
     } catch {
-      setError("Fullscreen could not be started. Allow fullscreen to begin quiz mode.");
+      setError("Could not switch to the quiz tab. Make sure popups are allowed, then try again.");
     }
   }
 
@@ -1717,7 +1728,7 @@ function StudentJoin({ sessionId }) {
             <div className="device-grid">
               <div className={`device-card ${cameraStream ? "device-ready" : ""}`}><div className="device-card-head"><div className="device-icon"><Video size={18}/></div><span className={cameraStream ? "device-status ready" : "device-status"}><i/>{cameraStream ? "Enabled" : "Not enabled"}</span></div><h3>Webcam</h3><p>{isOnlineQuiz ? "Allow camera access for the walkthrough and monitored online session." : "Allow camera access for the walkthrough review before the in-person quiz starts."}</p>{cameraStream ? <div className="mini-video"><video ref={bindCameraVideo} autoPlay playsInline muted/><span><CheckCircle2 size={13}/> Camera preview</span></div> : <button className="button-secondary device-button" onClick={enableCamera}><Video size={15}/> Enable webcam</button>}</div>
               <div className={`device-card ${screenStream ? "device-ready" : ""}`}><div className="device-card-head"><div className="device-icon screen-icon"><Monitor size={18}/></div><span className={screenStream ? "device-status ready" : "device-status"}><i/>{screenStream ? isOnlineQuiz ? "Entire screen shared" : "Quiz tab shared" : "Not sharing"}</span></div><h3>{isOnlineQuiz ? "Entire screen" : "Quiz tab"}</h3><p>{isOnlineQuiz ? "Share your full display. Switching tabs or windows will trigger a 10-second return alert." : "Share only the quiz tab. Switching tabs, windows, or leaving fullscreen triggers a 5-second return alert."}</p>{!screenStream && <div className="display-declaration"><label className="field-label">Lecturer-set quiz host<input readOnly value={session.assignmentHost || "Not set by lecturer yet"} /></label><small>{session.assignmentHost ? "Your lecturer set where the assignment is hosted." : "Wait for your lecturer to set the assignment host before submitting setup."}</small>{mobileDevice && <small>Mobile browsers may not support verified {isOnlineQuiz ? "entire-screen" : "quiz-tab"} sharing for secure quiz monitoring. If this fails, continue on a laptop/desktop browser.</small>}</div>}{screenStream ? <div className="mini-video"><video ref={bindScreenVideo} autoPlay playsInline muted/><span><CheckCircle2 size={13}/> Screen preview</span></div> : <button className="button-secondary device-button" onClick={shareScreen}><Monitor size={15}/>{isOnlineQuiz ? "Share entire screen" : "Share quiz tab"}</button>}</div>
-              {isOnlineQuiz && <div className={`device-card ${quizTabStream ? "device-ready" : ""}`}><div className="device-card-head"><div className="device-icon screen-icon"><BookOpen size={18}/></div><span className={quizTabStream ? "device-status ready" : "device-status"}><i/>{quizTabStream ? "Quiz tab selected" : "Not selected"}</span></div><h3>Quiz tab</h3><p>Open your quiz in a new tab first, then come back here and click Choose quiz tab to select it in the browser picker.</p>{session.quizUrl && !quizTabStream && <div className="quiz-url-hint"><ExternalLink size={14}/><span>Your lecturer set the quiz link:</span><a href={session.quizUrl} target="_blank" rel="noopener noreferrer" className="button-secondary quiz-open-button"><ExternalLink size={14}/> Open quiz tab</a><small>After the quiz tab opens, return here and choose it below.</small></div>}{quizTabStream ? <div className="mini-video"><video ref={bindQuizTabVideo} autoPlay playsInline muted/><span><CheckCircle2 size={13}/> {student?.reportedQuizTab || "Quiz tab preview"}</span></div> : <button className="button-secondary device-button" onClick={shareQuizTab}><BookOpen size={15}/> Choose quiz tab</button>}</div>}
+              {isOnlineQuiz && <div className={`device-card ${quizTabStream ? "device-ready" : ""}`}><div className="device-card-head"><div className="device-icon screen-icon"><BookOpen size={18}/></div><span className={quizTabStream ? "device-status ready" : "device-status"}><i/>{quizTabStream ? "Quiz tab selected" : "Not selected"}</span></div><h3>Quiz tab</h3><p>Open your quiz in a new tab first, then come back here and click Choose quiz tab to select it in the browser picker.</p>{session.quizUrl && !quizTabStream && <div className="quiz-url-hint"><ExternalLink size={14}/><span>Your lecturer set the quiz link:</span><button type="button" className="button-secondary quiz-open-button" onClick={() => { quizTabWindowRef.current = window.open(session.quizUrl, 'proctor-buddy-quiz'); }}><ExternalLink size={14}/> Open quiz in new tab</button><small>After the quiz tab opens, return here and choose it below.</small></div>}{quizTabStream ? <div className="mini-video"><video ref={bindQuizTabVideo} autoPlay playsInline muted/><span><CheckCircle2 size={13}/> {student?.reportedQuizTab || "Quiz tab preview"}</span></div> : <button className="button-secondary device-button" onClick={shareQuizTab}><BookOpen size={15}/> Choose quiz tab</button>}</div>}
             </div>
             <div className="camera-analysis-card"><div className="analysis-indicator"><span className={`analysis-pulse ${faceMonitor.state === "present" ? "on" : ""}`}/><div><strong>{cameraStream ? "Camera checks active" : "Camera checks not started"}</strong><span>{cameraStream ? faceMonitor.detail : "Checks start when webcam access is enabled."}</span></div></div><span className="analysis-local">ON DEVICE</span></div>
             <div className="scan-card background-video-card"><div className="eyebrow">10-SECOND WALKTHROUGH</div><h2>Record a short video of your background</h2><p>Move your webcam slowly to show the area around your workspace. Maximum upload size: 3.5 MB.</p>{scanVideoUrl && <video className="background-video-preview" style={{ width: "100%", maxHeight: 320, objectFit: "contain" }} src={scanVideoUrl} controls playsInline/>}{recordingScan ? <div className="recording-controls" style={{ display: "flex", alignItems: "center", gap: 10 }}><span className="recording-indicator"><i/>Recording (up to 10 seconds)</span><button className="button-secondary" onClick={finishBackgroundScan}>Stop recording</button></div> : <div className="recording-controls" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}><button className="button-secondary" onClick={recordBackgroundScan} disabled={!cameraStream || busy}><Video size={15}/>{scanVideoUrl ? "Record again" : "Record background video"}</button>{scanVideoUrl && <><button className="button-secondary" onClick={() => { scanVideoBlobRef.current = null; setScanVideoUrl(""); setScanVideoSize(0); if (scanVideoUrlRef.current) URL.revokeObjectURL(scanVideoUrlRef.current); scanVideoUrlRef.current = ""; }}>Remove video</button><span className="video-size-note">{(scanVideoSize / (1024 * 1024)).toFixed(2)} MB</span></>}</div>}<div className="scan-hint"><Eye size={15}/> Approximate on-device face-presence and position cues are only a review aid; your lecturer reviews the video.</div></div>
