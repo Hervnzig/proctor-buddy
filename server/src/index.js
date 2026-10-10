@@ -45,7 +45,7 @@ app.get("/health", (_, response) => {
 });
 
 app.post("/api/sessions", (request, response) => {
-  const { title, lecturerName, assignmentHost = "", quizMode = "online" } = request.body ?? {};
+  const { title, lecturerName, assignmentHost = "", quizUrl = "", quizMode = "online" } = request.body ?? {};
   if (!title || !lecturerName) {
     response.status(400).json({ error: "title and lecturerName are required" });
     return;
@@ -55,7 +55,7 @@ app.post("/api/sessions", (request, response) => {
     return;
   }
 
-  const session = createSession({ title, lecturerName, assignmentHost: String(assignmentHost).trim().slice(0, 160), quizMode });
+  const session = createSession({ title, lecturerName, assignmentHost: String(assignmentHost).trim().slice(0, 160), quizUrl: String(quizUrl).trim().slice(0, 2048), quizMode });
   response.status(201).json(session);
 });
 
@@ -83,12 +83,13 @@ app.get("/api/sessions/:id/students/:studentId/status", (request, response) => {
 });
 
 app.patch("/api/sessions/:id", (request, response) => {
-  const { status, assignmentHost, quizMode } = request.body ?? {};
+  const { status, assignmentHost, quizUrl, quizMode } = request.body ?? {};
   const hasStatus = typeof status !== "undefined";
   const hasAssignmentHost = typeof assignmentHost !== "undefined";
+  const hasQuizUrl = typeof quizUrl !== "undefined";
   const hasQuizMode = typeof quizMode !== "undefined";
-  if (!hasStatus && !hasAssignmentHost && !hasQuizMode) {
-    response.status(400).json({ error: "provide status, assignmentHost, and/or quizMode" });
+  if (!hasStatus && !hasAssignmentHost && !hasQuizUrl && !hasQuizMode) {
+    response.status(400).json({ error: "provide status, assignmentHost, quizUrl, and/or quizMode" });
     return;
   }
   if (hasStatus && status !== "ended" && status !== "live") {
@@ -99,6 +100,10 @@ app.patch("/api/sessions/:id", (request, response) => {
     response.status(400).json({ error: "assignmentHost must be a string" });
     return;
   }
+  if (hasQuizUrl && typeof quizUrl !== "string") {
+    response.status(400).json({ error: "quizUrl must be a string" });
+    return;
+  }
   if (hasQuizMode && !["online", "inperson"].includes(quizMode)) {
     response.status(400).json({ error: "quizMode must be online or inperson" });
     return;
@@ -106,6 +111,7 @@ app.patch("/api/sessions/:id", (request, response) => {
   const session = updateSession(request.params.id, {
     ...(hasStatus ? { status, endedAt: status === "ended" ? new Date().toISOString() : null } : {}),
     ...(hasAssignmentHost ? { assignmentHost: assignmentHost.trim().slice(0, 160) } : {}),
+    ...(hasQuizUrl ? { quizUrl: quizUrl.trim().slice(0, 2048) } : {}),
     ...(hasQuizMode ? { quizMode } : {})
   });
   if (!session) {
