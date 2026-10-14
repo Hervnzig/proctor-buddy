@@ -3,22 +3,41 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Quiz Proctor Setup</title>
+    <title>Proctor Buddy — Canvas Monitor</title>
     <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
     <main>
-      <h1>Quiz Proctor</h1>
-      <label>
-        Student ID
-        <input id="studentId" placeholder="S-1001" />
-      </label>
-      <label>
-        Quiz ID
-        <input id="quizId" placeholder="BIO-QUIZ-03" />
-      </label>
-      <button id="startBtn">Start monitored session</button>
-      <p id="status"></p>
+      <div class="pop-header">
+        <div class="pop-brand">
+          <span class="pop-dot"></span>
+          <strong>Proctor Buddy</strong>
+        </div>
+        <span id="canvasBadge" class="pop-badge">Checking tab…</span>
+      </div>
+
+      <div class="pop-card">
+        <div class="pop-card-label">Active Canvas Tab</div>
+        <div id="activeTabUrl" class="pop-url">Scanning current tab…</div>
+      </div>
+
+      <div class="pop-status-grid">
+        <div class="pop-metric">
+          <span class="pop-metric-label">Window Switching</span>
+          <strong id="windowPolicyText">Strictly Monitored</strong>
+        </div>
+        <div class="pop-metric">
+          <span class="pop-metric-label">Permitted Tools</span>
+          <strong id="allowedPlatformsText">Canvas Only</strong>
+        </div>
+      </div>
+
+      <div class="pop-actions">
+        <button id="launchProctorBtn" class="pop-btn-primary">Open Canvas Proctor Setup</button>
+        <button id="fullscreenBtn" class="pop-btn-secondary">Force Full Screen</button>
+      </div>
+
+      <p id="statusMsg" class="pop-status"></p>
     </main>
     <script src="popup.js"></script>
   </body>

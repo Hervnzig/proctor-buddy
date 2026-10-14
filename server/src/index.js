@@ -45,7 +45,7 @@ app.get("/health", (_, response) => {
 });
 
 app.post("/api/sessions", (request, response) => {
-  const { title, lecturerName, assignmentHost = "", quizUrl = "", quizMode = "online" } = request.body ?? {};
+  const { title, lecturerName, assignmentHost = "", quizUrl = "", quizMode = "online", allowWindowSwitching = false, allowedPlatforms = "" } = request.body ?? {};
   if (!title || !lecturerName) {
     response.status(400).json({ error: "title and lecturerName are required" });
     return;
@@ -55,7 +55,15 @@ app.post("/api/sessions", (request, response) => {
     return;
   }
 
-  const session = createSession({ title, lecturerName, assignmentHost: String(assignmentHost).trim().slice(0, 160), quizUrl: String(quizUrl).trim().slice(0, 2048), quizMode });
+  const session = createSession({
+    title,
+    lecturerName,
+    assignmentHost: String(assignmentHost).trim().slice(0, 160),
+    quizUrl: String(quizUrl).trim().slice(0, 2048),
+    quizMode,
+    allowWindowSwitching: Boolean(allowWindowSwitching),
+    allowedPlatforms: String(allowedPlatforms || "").trim().slice(0, 1000)
+  });
   response.status(201).json(session);
 });
 
@@ -83,13 +91,15 @@ app.get("/api/sessions/:id/students/:studentId/status", (request, response) => {
 });
 
 app.patch("/api/sessions/:id", (request, response) => {
-  const { status, assignmentHost, quizUrl, quizMode } = request.body ?? {};
+  const { status, assignmentHost, quizUrl, quizMode, allowWindowSwitching, allowedPlatforms } = request.body ?? {};
   const hasStatus = typeof status !== "undefined";
   const hasAssignmentHost = typeof assignmentHost !== "undefined";
   const hasQuizUrl = typeof quizUrl !== "undefined";
   const hasQuizMode = typeof quizMode !== "undefined";
-  if (!hasStatus && !hasAssignmentHost && !hasQuizUrl && !hasQuizMode) {
-    response.status(400).json({ error: "provide status, assignmentHost, quizUrl, and/or quizMode" });
+  const hasAllowWindowSwitching = typeof allowWindowSwitching !== "undefined";
+  const hasAllowedPlatforms = typeof allowedPlatforms !== "undefined";
+  if (!hasStatus && !hasAssignmentHost && !hasQuizUrl && !hasQuizMode && !hasAllowWindowSwitching && !hasAllowedPlatforms) {
+    response.status(400).json({ error: "provide updates to session fields" });
     return;
   }
   if (hasStatus && status !== "ended" && status !== "live") {
@@ -112,7 +122,9 @@ app.patch("/api/sessions/:id", (request, response) => {
     ...(hasStatus ? { status, endedAt: status === "ended" ? new Date().toISOString() : null } : {}),
     ...(hasAssignmentHost ? { assignmentHost: assignmentHost.trim().slice(0, 160) } : {}),
     ...(hasQuizUrl ? { quizUrl: quizUrl.trim().slice(0, 2048) } : {}),
-    ...(hasQuizMode ? { quizMode } : {})
+    ...(hasQuizMode ? { quizMode } : {}),
+    ...(hasAllowWindowSwitching ? { allowWindowSwitching: Boolean(allowWindowSwitching) } : {}),
+    ...(hasAllowedPlatforms ? { allowedPlatforms: String(allowedPlatforms).trim().slice(0, 1000) } : {})
   });
   if (!session) {
     response.status(404).json({ error: "session not found" });

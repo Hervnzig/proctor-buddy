@@ -1,50 +1,51 @@
-const API_BASE = "http://localhost:4310/api";
+const canvasBadge = document.getElementById("canvasBadge");
+const activeTabUrl = document.getElementById("activeTabUrl");
+const windowPolicyText = document.getElementById("windowPolicyText");
+const allowedPlatformsText = document.getElementById("allowedPlatformsText");
+const launchProctorBtn = document.getElementById("launchProctorBtn");
+const fullscreenBtn = document.getElementById("fullscreenBtn");
+const statusMsg = document.getElementById("statusMsg");
 
-const studentInput = document.getElementById("studentId");
-const quizInput = document.getElementById("quizId");
-const startButton = document.getElementById("startBtn");
-const statusElement = document.getElementById("status");
+// Check current active tab
+chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+  const tab = tabs[0];
+  if (!tab) return;
 
-startButton.addEventListener("click", async () => {
-  const studentId = studentInput.value.trim();
-  const quizId = quizInput.value.trim();
+  const url = tab.url || "";
+  activeTabUrl.textContent = url;
 
-  if (!studentId || !quizId) {
-    statusElement.textContent = "Student ID and Quiz ID are required.";
-    return;
+  const isCanvas = url.includes("instructure.com") || url.includes("lti/launch") || url.includes("/quizzes") || url.includes("quiz");
+  if (isCanvas) {
+    canvasBadge.textContent = "Canvas Detected ✓";
+    canvasBadge.style.color = "#4cd88c";
+  } else {
+    canvasBadge.textContent = "Other Page";
+    canvasBadge.style.color = "#8fa597";
   }
+});
 
-  try {
-    statusElement.textContent = "Creating session...";
-    const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+// Check if there is an active session in storage
+chrome.storage.local.get("activeCanvasQuiz", (data) => {
+  if (data?.activeCanvasQuiz) {
+    const session = data.activeCanvasQuiz;
+    windowPolicyText.textContent = session.allowWindowSwitching ? "Permitted Tools" : "Strict (No Switching)";
+    allowedPlatformsText.textContent = session.allowedPlatforms || "Canvas Only";
+  }
+});
 
-    const response = await fetch(`${API_BASE}/sessions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        studentId,
-        quizId,
-        quizUrl: activeTab?.url || null
-      })
-    });
-
-    if (!response.ok) {
-      throw new Error("Unable to create session");
+launchProctorBtn.addEventListener("click", () => {
+  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    const tab = tabs[0];
+    if (tab?.id) {
+      chrome.tabs.sendMessage(tab.id, { type: "SHOW_PROCTOR_SETUP" }).catch(() => {
+        statusMsg.textContent = "Please refresh the Canvas tab if newly loaded.";
+      });
+      statusMsg.textContent = "Proctor setup opened in tab.";
     }
+  });
+});
 
-    const session = await response.json();
-    await chrome.storage.local.set({
-      currentSession: {
-        id: session.id,
-        studentId,
-        quizId,
-        quizTabId: activeTab?.id || null
-      }
-    });
-
-    await chrome.tabs.create({ url: chrome.runtime.getURL(`monitor.html?sessionId=${session.id}`) });
-    statusElement.textContent = "Session started. Complete pre-check in monitor tab.";
-  } catch (error) {
-    statusElement.textContent = `Error: ${error.message}`;
-  }
+fullscreenBtn.addEventListener("click", () => {
+  chrome.runtime.sendMessage({ type: "MAKE_QUIZ_FULLSCREEN" });
+  statusMsg.textContent = "Fullscreen requested.";
 });

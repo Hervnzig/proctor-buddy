@@ -8,7 +8,7 @@ function normalizeQuizMode(mode) {
   return mode === "inperson" ? "inperson" : "online";
 }
 
-export function createSession({ title, lecturerName, assignmentHost = "", quizUrl = "", quizMode = "online" }) {
+export function createSession({ title, lecturerName, assignmentHost = "", quizUrl = "", quizMode = "online", allowWindowSwitching = false, allowedPlatforms = "" }) {
   const now = new Date().toISOString();
   const session = {
     id: uuidv4(),
@@ -18,6 +18,8 @@ export function createSession({ title, lecturerName, assignmentHost = "", quizUr
     assignmentHost,
     quizUrl,
     quizMode: normalizeQuizMode(quizMode),
+    allowWindowSwitching: Boolean(allowWindowSwitching),
+    allowedPlatforms: String(allowedPlatforms || "").trim().slice(0, 1000),
     status: "live",
     createdAt: now,
     students: []

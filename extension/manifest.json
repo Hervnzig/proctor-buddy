@@ -1,21 +1,41 @@
 {
   "manifest_version": 3,
-  "name": "Quiz Proctor Monitor",
-  "version": "0.1.0",
-  "description": "Student pre-check and in-browser assessment monitoring",
-  "permissions": ["storage", "tabs", "activeTab", "windows"],
-  "host_permissions": ["http://localhost:4310/*", "http://localhost:5173/*", "http://127.0.0.1:5173/*"],
+  "name": "Proctor Buddy — Canvas Quiz Monitor",
+  "version": "1.0.0",
+  "description": "Canvas assessment proctoring: student onboarding, camera feed, forced fullscreen, and window switch monitoring with allowed platform verification.",
+  "permissions": [
+    "storage",
+    "tabs",
+    "activeTab",
+    "windows",
+    "scripting"
+  ],
+  "host_permissions": [
+    "*://*.instructure.com/*",
+    "*://*.quiz-lti-dub-prod.instructure.com/*",
+    "http://localhost:4310/*",
+    "http://localhost:5173/*",
+    "http://127.0.0.1:4310/*",
+    "http://127.0.0.1:5173/*"
+  ],
   "background": {
     "service_worker": "background.js"
   },
   "action": {
-    "default_title": "Quiz Proctor",
+    "default_title": "Proctor Buddy Canvas Monitor",
     "default_popup": "popup.html"
   },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
+      "matches": [
+        "*://*.instructure.com/*",
+        "*://*.quiz-lti-dub-prod.instructure.com/*",
+        "http://localhost/*",
+        "http://127.0.0.1/*",
+        "<all_urls>"
+      ],
       "js": ["content-script.js"],
+      "css": ["content-style.css"],
       "run_at": "document_idle"
     }
   ]
