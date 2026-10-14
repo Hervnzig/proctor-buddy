@@ -3,8 +3,8 @@
   "name": "Quiz Proctor Monitor",
   "version": "0.1.0",
   "description": "Student pre-check and in-browser assessment monitoring",
-  "permissions": ["storage", "tabs", "activeTab"],
-  "host_permissions": ["http://localhost:4310/*"],
+  "permissions": ["storage", "tabs", "activeTab", "windows"],
+  "host_permissions": ["http://localhost:4310/*", "http://localhost:5173/*", "http://127.0.0.1:5173/*"],
   "background": {
     "service_worker": "background.js"
   },

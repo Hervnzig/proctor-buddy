@@ -838,6 +838,7 @@ function StudentJoin({ sessionId }) {
   const [pendingFeedRequest, setPendingFeedRequest] = useState(null);
   const [feedRequestSecondsLeft, setFeedRequestSecondsLeft] = useState(30);
   const [quizModeStarted, setQuizModeStarted] = useState(false);
+  const quizModeStartTimeRef = useRef(0);
   const [faceMonitor, setFaceMonitor] = useState({ state: "idle", count: null, detail: "Local face-presence and position checks start after webcam access." });
   const [policyWarning, setPolicyWarning] = useState(null);
   const mobileDevice = isMobileBrowser();
@@ -1134,6 +1135,7 @@ function StudentJoin({ sessionId }) {
     const screenContext = screenCanvas.getContext("2d", { willReadFrequently: true });
     const quizContext = quizCanvas.getContext("2d", { willReadFrequently: true });
     if (!screenContext || !quizContext) return;
+    let consecutiveMismatches = 0;
     const buildSignature = (video, canvas, context) => {
       if (!video?.videoWidth || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return null;
       canvas.width = 30;
@@ -1141,8 +1143,9 @@ function StudentJoin({ sessionId }) {
       context.drawImage(video, 0, 0, canvas.width, canvas.height);
       const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
       const signature = [];
-      for (let row = 0; row < 6; row += 1) {
-        for (let column = 0; column < 6; column += 1) {
+      // Sample central rows and columns to focus on main window content rather than OS bars
+      for (let row = 1; row < 5; row += 1) {
+        for (let column = 1; column < 5; column += 1) {
           const x = Math.min(canvas.width - 1, Math.round((column + 0.5) * canvas.width / 6));
           const y = Math.min(canvas.height - 1, Math.round((row + 0.5) * canvas.height / 6));
           const offset = (y * canvas.width + x) * 4;
@@ -1153,21 +1156,28 @@ function StudentJoin({ sessionId }) {
     };
     const compareSignatures = (first, second) => first.reduce((sum, value, index) => sum + Math.abs(value - second[index]), 0) / first.length;
     const timer = setInterval(() => {
+      // Allow a 7-second grace period after starting quiz mode for tab focus and fullscreen transition
+      if (Date.now() - quizModeStartTimeRef.current < 7000) return;
       const screenSignature = buildSignature(screenRef.current, screenCanvas, screenContext);
       const quizSignature = buildSignature(quizTabRef.current, quizCanvas, quizContext);
       if (!screenSignature || !quizSignature) return;
       const mismatch = compareSignatures(screenSignature, quizSignature);
-      if (mismatch <= 0.18) {
+      if (mismatch <= 0.28) {
+        consecutiveMismatches = 0;
         clearPolicyWarning("Student returned to the selected online quiz tab in time.");
         return;
       }
-      startPolicyWarning({
-        message: "Return to the selected quiz tab within 10 seconds or the session will end.",
-        seconds: 10,
-        timeoutReason: "Student left the selected quiz tab or moved to another window for more than 10 seconds during an online quiz.",
-        timeoutEventType: "online-quiz-monitor-timeout-ended",
-        startedEventType: "online-quiz-monitor-warning-started"
-      });
+      consecutiveMismatches += 1;
+      // Require at least 3 consecutive mismatch checks (~5.4s) before initiating policy warning
+      if (consecutiveMismatches >= 3) {
+        startPolicyWarning({
+          message: "Return to the selected quiz tab within 10 seconds or the session will end.",
+          seconds: 10,
+          timeoutReason: "Student left the selected quiz tab or moved to another window for more than 10 seconds during an online quiz.",
+          timeoutEventType: "online-quiz-monitor-timeout-ended",
+          startedEventType: "online-quiz-monitor-warning-started"
+        });
+      }
     }, 1800);
     return () => clearInterval(timer);
   }, [quizModeStarted, student?.status, isOnlineQuiz, screenStream, quizTabStream]);
@@ -1261,16 +1271,20 @@ function StudentJoin({ sessionId }) {
     const onVisibility = () => {
       if (document.visibilityState !== "hidden") return;
       record("screen-proctor-tab-hidden", { detail: "The proctoring page became hidden." });
-      if (screenStream?.active) {
+      // In online quiz mode, the student works on the quiz in their separate tab/window,
+      // so the proctor tab becoming hidden is normal and expected.
+      // Only flag tab switch if this is an in-person quiz where the student must remain on this proctored tab view,
+      // and quiz mode has actually started.
+      if (!isOnlineQuiz && quizModeStarted && screenStream?.active) {
         record("screen-tab-switch-flagged", {
-          message: "Tab switch detected while entire-screen sharing is active.",
-          note: "Tab switches are flagged for lecturer review during the quiz session."
+          message: "Tab switch detected while monitored quiz tab is active.",
+          note: "Student navigated away from the monitored quiz view."
         });
       }
     };
     document.addEventListener("visibilitychange", onVisibility);
     return () => { document.removeEventListener("visibilitychange", onVisibility); };
-  }, [student?.id, student?.status, sessionId, screenStream]);
+  }, [student?.id, student?.status, sessionId, screenStream, isOnlineQuiz, quizModeStarted]);
 
   useEffect(() => {
     if (!student || student.status !== "approved") return;
@@ -1785,20 +1799,59 @@ function StudentJoin({ sessionId }) {
       return;
     }
     try {
+      quizModeStartTimeRef.current = Date.now();
       if (isInPersonQuiz) {
         // For in-person: fullscreen the shared tab preview card.
         if (!document.fullscreenElement) {
           await sharedTabFullscreenRef.current?.requestFullscreen?.();
         }
       } else {
-        // For online: focus the quiz tab window so it becomes the active view,
-        // then the full-screen share captures the quiz on the student's monitor.
-        const quizWin = quizTabWindowRef.current;
+        // For online: focus and maximize the quiz tab window, and trigger forced fullscreen
+        let quizWin = quizTabWindowRef.current;
+        const features = `left=0,top=0,width=${window.screen.availWidth},height=${window.screen.availHeight},menubar=no,status=no,toolbar=no`;
+        const targetUrl = session.quizUrl || "/quiz.html";
         if (quizWin && !quizWin.closed) {
           quizWin.focus();
-        } else if (session.quizUrl) {
-          // Quiz tab was closed or not opened yet — re-open and focus it.
-          quizTabWindowRef.current = window.open(session.quizUrl, "proctor-buddy-quiz");
+        } else {
+          quizWin = window.open(targetUrl, "proctor-buddy-quiz", features);
+          quizTabWindowRef.current = quizWin;
+        }
+
+        // 1. Attempt direct DOM fullscreen if accessible (same-origin / local quiz)
+        try {
+          if (quizWin && quizWin.document && quizWin.document.documentElement) {
+            if (!quizWin.document.fullscreenElement) {
+              await quizWin.document.documentElement.requestFullscreen?.();
+            }
+          }
+        } catch {
+          // Cross-origin SOP prevents direct DOM access
+        }
+
+        // 2. Broadcast forced fullscreen to quiz tab via BroadcastChannel
+        try {
+          const bc = new BroadcastChannel("proctor-buddy-quiz");
+          bc.postMessage({ type: "PROCTOR_FORCE_FULLSCREEN", action: "start-quiz" });
+          setTimeout(() => {
+            try {
+              bc.postMessage({ type: "PROCTOR_FORCE_FULLSCREEN", action: "start-quiz" });
+              bc.close();
+            } catch {}
+          }, 400);
+        } catch {}
+
+        // 3. Post window message directly to quiz window
+        try {
+          quizWin?.postMessage?.({ type: "PROCTOR_FORCE_FULLSCREEN", action: "start-quiz" }, "*");
+        } catch {}
+
+        // 4. Signal extension content script to force window fullscreen
+        try {
+          window.postMessage({ type: "PROCTOR_FORCE_FULLSCREEN", action: "start-quiz" }, "*");
+        } catch {}
+
+        if (quizWin && !quizWin.closed) {
+          quizWin.focus();
         }
       }
       setQuizModeStarted(true);
@@ -1893,7 +1946,10 @@ function StudentJoin({ sessionId }) {
             <div className="device-grid">
               <div className={`device-card ${cameraStream ? "device-ready" : ""}`}><div className="device-card-head"><div className="device-icon"><Video size={18}/></div><span className={cameraStream ? "device-status ready" : "device-status"}><i/>{cameraStream ? "Enabled" : "Not enabled"}</span></div><h3>Webcam</h3><p>{isOnlineQuiz ? "Allow camera access for the walkthrough and monitored online session." : "Allow camera access for the walkthrough review before the in-person quiz starts."}</p>{cameraStream ? <div className="mini-video"><video ref={bindCameraVideo} autoPlay playsInline muted/><span><CheckCircle2 size={13}/> Camera preview</span></div> : <button className="button-secondary device-button" onClick={enableCamera}><Video size={15}/> Enable webcam</button>}</div>
               <div className={`device-card ${screenStream ? "device-ready" : ""}`}><div className="device-card-head"><div className="device-icon screen-icon"><Monitor size={18}/></div><span className={screenStream ? "device-status ready" : "device-status"}><i/>{screenStream ? isOnlineQuiz ? "Entire screen shared" : "Quiz tab shared" : "Not sharing"}</span></div><h3>{isOnlineQuiz ? "Entire screen" : "Quiz tab"}</h3><p>{isOnlineQuiz ? "Share your full display. Switching tabs or windows will trigger a 10-second return alert." : "Share only the quiz tab. Switching tabs, windows, or leaving fullscreen triggers a 10-second return alert."}</p>{!screenStream && <div className="display-declaration"><label className="field-label">Lecturer-set quiz host<input readOnly value={session.assignmentHost || "Not set by lecturer yet"} /></label><small>{session.assignmentHost ? "Your lecturer set where the assignment is hosted." : "Wait for your lecturer to set the assignment host before submitting setup."}</small>{mobileDevice && <small>Mobile browsers may not support verified {isOnlineQuiz ? "entire-screen" : "quiz-tab"} sharing for secure quiz monitoring. If this fails, continue on a laptop/desktop browser.</small>}</div>}{screenStream ? <div className="mini-video"><video ref={bindScreenVideo} autoPlay playsInline muted/><span><CheckCircle2 size={13}/> Screen preview</span></div> : <button className="button-secondary device-button" onClick={shareScreen}><Monitor size={15}/>{isOnlineQuiz ? "Share entire screen" : "Share quiz tab"}</button>}</div>
-              {isOnlineQuiz && <div className={`device-card ${quizTabStream ? "device-ready" : ""}`}><div className="device-card-head"><div className="device-icon screen-icon"><BookOpen size={18}/></div><span className={quizTabStream ? "device-status ready" : "device-status"}><i/>{quizTabStream ? "Quiz tab selected" : "Not selected"}</span></div><h3>Quiz tab</h3><p>Open your quiz in a new tab first, then come back here and click Choose quiz tab to select it in the browser picker.</p>{session.quizUrl && !quizTabStream && <div className="quiz-url-hint"><ExternalLink size={14}/><span>Your lecturer set the quiz link:</span><button type="button" className="button-secondary quiz-open-button" onClick={() => { quizTabWindowRef.current = window.open(session.quizUrl, 'proctor-buddy-quiz'); }}><ExternalLink size={14}/> Open quiz in new tab</button><small>After the quiz tab opens, return here and choose it below.</small></div>}{quizTabStream ? <div className="mini-video"><video ref={bindQuizTabVideo} autoPlay playsInline muted/><span><CheckCircle2 size={13}/> {student?.reportedQuizTab || "Quiz tab preview"}</span></div> : <button className="button-secondary device-button" onClick={shareQuizTab}><BookOpen size={15}/> Choose quiz tab</button>}</div>}
+              {isOnlineQuiz && <div className={`device-card ${quizTabStream ? "device-ready" : ""}`}><div className="device-card-head"><div className="device-icon screen-icon"><BookOpen size={18}/></div><span className={quizTabStream ? "device-status ready" : "device-status"}><i/>{quizTabStream ? "Quiz tab selected" : "Not selected"}</span></div><h3>Quiz tab</h3><p>Open your quiz in a new tab first, then come back here and click Choose quiz tab to select it in the browser picker.</p>{!quizTabStream && <div className="quiz-url-hint"><ExternalLink size={14}/><span>{session.quizUrl ? "Your lecturer set the quiz link:" : "Test with sample assessment quiz:"}</span><button type="button" className="button-secondary quiz-open-button" onClick={() => {
+                const features = `left=0,top=0,width=${window.screen.availWidth},height=${window.screen.availHeight},menubar=no,status=no,toolbar=no`;
+                quizTabWindowRef.current = window.open(session.quizUrl || "/quiz.html", 'proctor-buddy-quiz', features);
+              }}><ExternalLink size={14}/> Open quiz in new tab</button><small>After the quiz tab opens, return here and choose it below.</small></div>}{quizTabStream ? <div className="mini-video"><video ref={bindQuizTabVideo} autoPlay playsInline muted/><span><CheckCircle2 size={13}/> {student?.reportedQuizTab || "Quiz tab preview"}</span></div> : <button className="button-secondary device-button" onClick={shareQuizTab}><BookOpen size={15}/> Choose quiz tab</button>}</div>}
             </div>
             <div className="camera-analysis-card"><div className="analysis-indicator"><span className={`analysis-pulse ${faceMonitor.state === "present" ? "on" : ""}`}/><div><strong>{cameraStream ? "Camera checks active" : "Camera checks not started"}</strong><span>{cameraStream ? faceMonitor.detail : "Checks start when webcam access is enabled."}</span></div></div><span className="analysis-local">ON DEVICE</span></div>
             {isOnlineQuiz && <div className="scan-card direction-scan-card"><div className="eyebrow">WORKSPACE CHECK · 4 DIRECTIONS</div><h2>Pan your webcam and confirm each side</h2><p>For each direction, turn your webcam, capture a photo, then tap the green tick to confirm no one else is nearby and no disallowed materials are in view. Confirm all four sides before you submit.</p><div className="direction-scan-grid">{SCAN_SIDES.map((side) => { const shot = environmentScan.shots[side.key]; const isActive = environmentScan.activeSide === side.key; return <button key={side.key} type="button" className={`direction-scan-step ${isActive ? "active" : ""} ${shot?.confirmed ? "confirmed" : ""}`} onClick={() => selectScanSide(side.key)}><div className="direction-scan-step-head"><span className="direction-scan-label">{side.label}</span>{shot?.confirmed ? <span className="direction-scan-tick"><Check size={14}/></span> : <span className="direction-scan-pending">{isActive ? "Current" : "Pending"}</span>}</div>{shot?.dataUrl ? <img className="direction-scan-thumb" src={shot.dataUrl} alt={`${side.label} view`} /> : <div className="direction-scan-thumb direction-scan-thumb-empty"><Video size={18}/><span>No photo yet</span></div>}</button>; })}</div><div className="direction-scan-active"><div className="direction-scan-active-copy"><strong>{SCAN_SIDES.find((item) => item.key === environmentScan.activeSide)?.label} view</strong><span>{SCAN_SIDES.find((item) => item.key === environmentScan.activeSide)?.instruction}</span></div>{environmentScan.shots[environmentScan.activeSide]?.dataUrl ? <div className="direction-scan-actions"><img className="direction-scan-preview" src={environmentScan.shots[environmentScan.activeSide].dataUrl} alt="Captured workspace view" />{environmentScan.shots[environmentScan.activeSide]?.confirmed ? <span className="direction-scan-confirmed-badge"><CheckCircle2 size={15}/> Confirmed</span> : <div className="direction-scan-buttons"><button className="button-secondary" onClick={retakeScanStill}><RefreshCw size={14}/> Retake</button><button className="button-primary" onClick={confirmScanStill}><Check size={14}/> Confirm this side</button></div>}</div> : <button className="button-secondary direction-capture-button" onClick={captureScanStill} disabled={!cameraStream}><Video size={15}/> Capture {SCAN_SIDES.find((item) => item.key === environmentScan.activeSide)?.label.toLowerCase()} view</button>}</div>{allScanSidesConfirmed && <div className="direction-scan-complete"><CheckCircle2 size={16}/> All four sides confirmed. You can submit for review below.</div>}</div>}

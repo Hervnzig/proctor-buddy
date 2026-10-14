@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Assessment Quiz — Proctor Buddy Monitored</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,600;0,9..40,700;1,9..40,400&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0f1914;
+      --surface: #16241d;
+      --surface-border: #22382c;
+      --accent: #2e8657;
+      --accent-hover: #379f67;
+      --accent-light: #e5f4eb;
+      --text: #eef3ef;
+      --text-muted: #8fa196;
+      --danger: #cf4f43;
+      --warning: #d79f38;
+      --success: #3ab074;
+      --radius: 10px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      user-select: none;
+    }
+    header.quiz-header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--surface-border);
+      padding: 14px 28px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    .quiz-brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .quiz-brand-badge {
+      background: rgba(46, 134, 87, 0.18);
+      border: 1px solid rgba(46, 134, 87, 0.35);
+      color: #52c286;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 4px 10px;
+      border-radius: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .quiz-title {
+      font-family: 'Manrope', sans-serif;
+      font-size: 16px;
+      font-weight: 700;
+    }
+    .quiz-header-meta {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .fs-pill {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 5px 11px;
+      border-radius: 20px;
+      background: rgba(58, 176, 116, 0.14);
+      color: var(--success);
+      border: 1px solid rgba(58, 176, 116, 0.28);
+    }
+    .fs-pill.not-fullscreen {
+      background: rgba(207, 79, 67, 0.16);
+      color: #ea6d62;
+      border-color: rgba(207, 79, 67, 0.35);
+    }
+    .fs-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: currentColor;
+      box-shadow: 0 0 6px currentColor;
+    }
+    .timer-badge {
+      font-family: 'Manrope', monospace;
+      font-size: 13px;
+      font-weight: 700;
+      color: #f2f7f4;
+      background: #1c2e25;
+      padding: 6px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--surface-border);
+    }
+    main.quiz-main {
+      flex: 1;
+      max-width: 820px;
+      width: 100%;
+      margin: 32px auto;
+      padding: 0 20px 40px;
+    }
+    .progress-bar-wrap {
+      background: #1a2a21;
+      height: 6px;
+      border-radius: 3px;
+      overflow: hidden;
+      margin-bottom: 24px;
+    }
+    .progress-bar-fill {
+      height: 100%;
+      background: var(--success);
+      width: 20%;
+      transition: width 0.3s ease;
+    }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius);
+      padding: 28px 32px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+    }
+    .q-eyebrow {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text-muted);
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .q-text {
+      font-family: 'Manrope', sans-serif;
+      font-size: 19px;
+      font-weight: 700;
+      color: #fff;
+      line-height: 1.45;
+      margin-bottom: 24px;
+    }
+    .options-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-bottom: 28px;
+    }
+    .option-label {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 14px 18px;
+      background: #121e18;
+      border: 1px solid var(--surface-border);
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      color: #dfe7e1;
+      font-size: 14px;
+    }
+    .option-label:hover {
+      border-color: #3b5f4c;
+      background: #182820;
+    }
+    .option-label.selected {
+      border-color: var(--success);
+      background: rgba(58, 176, 116, 0.12);
+      color: #fff;
+    }
+    .option-radio {
+      accent-color: var(--success);
+      width: 17px;
+      height: 17px;
+    }
+    .quiz-actions {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-top: 16px;
+      border-top: 1px solid var(--surface-border);
+    }
+    button.btn {
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 700;
+      padding: 10px 22px;
+      border-radius: 8px;
+      border: 0;
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+    button.btn-primary {
+      background: var(--accent);
+      color: #fff;
+    }
+    button.btn-primary:hover {
+      background: var(--accent-hover);
+    }
+    button.btn-secondary {
+      background: #1e3328;
+      color: #c9d5cd;
+      border: 1px solid var(--surface-border);
+    }
+    button.btn-secondary:hover {
+      background: #254032;
+    }
+    button.btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    /* Fullscreen lockdown overlay */
+    #fullscreenLockdown {
+      position: fixed;
+      inset: 0;
+      background: rgba(10, 16, 13, 0.96);
+      backdrop-filter: blur(8px);
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 99999;
+      text-align: center;
+      padding: 30px;
+    }
+    #fullscreenLockdown.is-active {
+      display: flex;
+    }
+    .lockdown-card {
+      background: #18251e;
+      border: 2px solid var(--danger);
+      border-radius: 14px;
+      padding: 36px 40px;
+      max-width: 500px;
+      box-shadow: 0 20px 60px rgba(207, 79, 67, 0.25);
+    }
+    .lockdown-icon {
+      font-size: 40px;
+      margin-bottom: 16px;
+    }
+    .lockdown-title {
+      font-family: 'Manrope', sans-serif;
+      font-size: 22px;
+      color: #fff;
+      font-weight: 800;
+      margin-bottom: 10px;
+    }
+    .lockdown-desc {
+      font-size: 14px;
+      color: #b5c4ba;
+      line-height: 1.5;
+      margin-bottom: 22px;
+    }
+    .lockdown-timer {
+      font-size: 13px;
+      color: #ea6d62;
+      font-weight: 700;
+      margin-bottom: 20px;
+    }
+    .btn-lockdown {
+      background: var(--danger);
+      color: #fff;
+      font-size: 14px;
+      padding: 12px 28px;
+    }
+    .btn-lockdown:hover {
+      background: #b84338;
+    }
+    .completed-card {
+      text-align: center;
+      padding: 48px 30px;
+    }
+    .completed-icon {
+      font-size: 48px;
+      color: var(--success);
+      margin-bottom: 16px;
+    }
+  </style>
+</head>
+<body>
+  <header class="quiz-header">
+    <div class="quiz-brand">
+      <span class="quiz-brand-badge">Proctor Buddy Monitored</span>
+      <h1 class="quiz-title">Midterm Assessment — Monitored Exam</h1>
+    </div>
+    <div class="quiz-header-meta">
+      <div id="fullscreenIndicator" class="fs-pill">
+        <span class="fs-dot"></span>
+        <span id="fsStatusText">Full Screen Active</span>
+      </div>
+      <div id="quizTimer" class="timer-badge">24:45</div>
+    </div>
+  </header>
+
+  <main class="quiz-main">
+    <div class="progress-bar-wrap">
+      <div id="progressFill" class="progress-bar-fill"></div>
+    </div>
+
+    <div id="questionContainer" class="card">
+      <div id="questionNumber" class="q-eyebrow">Question 1 of 5</div>
+      <div id="questionPrompt" class="q-text">What is the primary objective of a client-side proctoring integrity monitor during online assessments?</div>
+      
+      <div id="optionsList" class="options-list">
+        <!-- Dynamically rendered -->
+      </div>
+
+      <div class="quiz-actions">
+        <button id="prevBtn" class="btn btn-secondary" disabled>Previous</button>
+        <button id="nextBtn" class="btn btn-primary">Next Question</button>
+      </div>
+    </div>
+
+    <div id="completedContainer" class="card completed-card" style="display: none;">
+      <div class="completed-icon">✓</div>
+      <h2 style="font-family:'Manrope',sans-serif; font-size:24px; margin-bottom:10px;">Assessment Submitted</h2>
+      <p style="color:var(--text-muted); font-size:14px; margin-bottom:24px;">Your responses have been recorded and your monitored session has been submitted to your lecturer for review.</p>
+      <button class="btn btn-primary" onclick="window.close()">Close Assessment Tab</button>
+    </div>
+  </main>
+
+  <!-- Fullscreen Lockdown Modal -->
+  <div id="fullscreenLockdown">
+    <div class="lockdown-card">
+      <div class="lockdown-icon">⚠️</div>
+      <h2 class="lockdown-title">Full Screen Mode Required</h2>
+      <p class="lockdown-desc">Proctor Buddy monitoring requires this quiz tab to remain in Full Screen mode at all times. Leaving full screen or switching tabs is flagged for lecturer review.</p>
+      <div id="lockdownCountdown" class="lockdown-timer">Please return to Full Screen mode immediately.</div>
+      <button id="reenterFullscreenBtn" class="btn btn-lockdown">Click to Return to Full Screen</button>
+    </div>
+  </div>
+
+  <script>
+    const questions = [
+      {
+        prompt: "What is the primary objective of a client-side proctoring integrity monitor during online assessments?",
+        options: [
+          "To enforce single-tab focus, prevent unmonitored window switching, and preserve exam integrity.",
+          "To automatically correct student answers in real time.",
+          "To increase the network latency of the student's workstation.",
+          "To download student personal files to the lecturer's computer."
+        ]
+      },
+      {
+        prompt: "Which browser API enables a web application to request immersion covering the entire monitor display?",
+        options: [
+          "Fullscreen API (element.requestFullscreen())",
+          "WebRTC AudioStream API",
+          "IndexedDB KeyRange API",
+          "Geolocation WatchPosition API"
+        ]
+      },
+      {
+        prompt: "Why must the student share their entire screen (monitor) during an online proctored quiz?",
+        options: [
+          "To verify that no external unauthorized windows, side chats, or browser instances are opened.",
+          "To reduce battery consumption on mobile devices.",
+          "To change the resolution of the lecturer's monitor.",
+          "To allow other students in the room to view their screen."
+        ]
+      },
+      {
+        prompt: "In a monitored assessment session, what happens if an unauthorized tab switch or blur occurs?",
+        options: [
+          "A grace period warning starts, allowing 10 seconds to return before session review lockout.",
+          "The computer immediately shuts down.",
+          "The exam is automatically marked 100%.",
+          "The browser history is cleared."
+        ]
+      },
+      {
+        prompt: "What role does the webcam verification pre-check serve before assessment admission?",
+        options: [
+          "Ensuring the testing space is clear of unauthorized aids and confirming proper lighting.",
+          "Testing high-definition microphone stereo acoustics.",
+          "Measuring the physical weight of the student's desk.",
+          "Calibrating keyboard mechanical switches."
+        ]
+      }
+    ];
+
+    let currentQuestionIndex = 0;
+    const selectedAnswers = {};
+
+    const questionNumberEl = document.getElementById("questionNumber");
+    const questionPromptEl = document.getElementById("questionPrompt");
+    const optionsListEl = document.getElementById("optionsList");
+    const progressFillEl = document.getElementById("progressFill");
+    const prevBtn = document.getElementById("prevBtn");
+    const nextBtn = document.getElementById("nextBtn");
+    const questionContainer = document.getElementById("questionContainer");
+    const completedContainer = document.getElementById("completedContainer");
+    const fullscreenIndicator = document.getElementById("fullscreenIndicator");
+    const fsStatusText = document.getElementById("fsStatusText");
+    const fullscreenLockdown = document.getElementById("fullscreenLockdown");
+    const reenterFullscreenBtn = document.getElementById("reenterFullscreenBtn");
+
+    function renderQuestion() {
+      const q = questions[currentQuestionIndex];
+      questionNumberEl.textContent = `Question ${currentQuestionIndex + 1} of ${questions.length}`;
+      questionPromptEl.textContent = q.prompt;
+      progressFillEl.style.width = `${((currentQuestionIndex + 1) / questions.length) * 100}%`;
+
+      optionsListEl.innerHTML = "";
+      q.options.forEach((opt, idx) => {
+        const label = document.createElement("label");
+        label.className = `option-label ${selectedAnswers[currentQuestionIndex] === idx ? 'selected' : ''}`;
+        
+        const radio = document.createElement("input");
+        radio.type = "radio";
+        radio.name = "quiz_opt";
+        radio.className = "option-radio";
+        radio.checked = selectedAnswers[currentQuestionIndex] === idx;
+        radio.addEventListener("change", () => {
+          selectedAnswers[currentQuestionIndex] = idx;
+          renderQuestion();
+        });
+
+        const span = document.createElement("span");
+        span.textContent = opt;
+
+        label.appendChild(radio);
+        label.appendChild(span);
+        optionsListEl.appendChild(label);
+      });
+
+      prevBtn.disabled = currentQuestionIndex === 0;
+      nextBtn.textContent = currentQuestionIndex === questions.length - 1 ? "Submit Assessment" : "Next Question";
+    }
+
+    prevBtn.addEventListener("click", () => {
+      if (currentQuestionIndex > 0) {
+        currentQuestionIndex--;
+        renderQuestion();
+      }
+    });
+
+    nextBtn.addEventListener("click", () => {
+      if (currentQuestionIndex < questions.length - 1) {
+        currentQuestionIndex++;
+        renderQuestion();
+      } else {
+        questionContainer.style.display = "none";
+        completedContainer.style.display = "block";
+      }
+    });
+
+    // Forced Fullscreen Management
+    function requestFullscreenMode() {
+      const docEl = document.documentElement;
+      if (!document.fullscreenElement) {
+        const req = docEl.requestFullscreen || docEl.webkitRequestFullscreen || docEl.msRequestFullscreen;
+        if (req) {
+          req.call(docEl).then(() => {
+            updateFullscreenUI(true);
+          }).catch((err) => {
+            console.warn("Fullscreen request requires user interaction:", err);
+            updateFullscreenUI(false);
+          });
+        }
+      } else {
+        updateFullscreenUI(true);
+      }
+    }
+
+    function updateFullscreenUI(isFullscreen) {
+      if (isFullscreen) {
+        fullscreenIndicator.classList.remove("not-fullscreen");
+        fsStatusText.textContent = "Full Screen Active";
+        fullscreenLockdown.classList.remove("is-active");
+      } else {
+        fullscreenIndicator.classList.add("not-fullscreen");
+        fsStatusText.textContent = "Full Screen Required";
+        fullscreenLockdown.classList.add("is-active");
+      }
+    }
+
+    document.addEventListener("fullscreenchange", () => {
+      updateFullscreenUI(Boolean(document.fullscreenElement));
+    });
+    document.addEventListener("webkitfullscreenchange", () => {
+      updateFullscreenUI(Boolean(document.webkitFullscreenElement));
+    });
+
+    reenterFullscreenBtn.addEventListener("click", () => {
+      requestFullscreenMode();
+    });
+
+    // Automatically trigger fullscreen on user click or touch
+    window.addEventListener("click", () => {
+      if (!document.fullscreenElement) {
+        requestFullscreenMode();
+      }
+    });
+
+    // Listen to BroadcastChannel from Proctor Buddy app
+    try {
+      const bc = new BroadcastChannel("proctor-buddy-quiz");
+      bc.onmessage = (event) => {
+        if (event.data?.type === "PROCTOR_FORCE_FULLSCREEN" || event.data?.type === "FORCE_FULLSCREEN") {
+          requestFullscreenMode();
+        }
+      };
+    } catch (e) {}
+
+    // Listen to window postMessage
+    window.addEventListener("message", (event) => {
+      if (event.data?.type === "PROCTOR_FORCE_FULLSCREEN" || event.data?.type === "FORCE_FULLSCREEN") {
+        requestFullscreenMode();
+      }
+    });
+
+    // Initial check and request
+    requestFullscreenMode();
+    renderQuestion();
+
+    // Mock timer countdown
+    let secondsLeft = 24 * 60 + 45;
+    setInterval(() => {
+      if (secondsLeft > 0) {
+        secondsLeft--;
+        const mins = Math.floor(secondsLeft / 60);
+        const secs = secondsLeft % 60;
+        document.getElementById("quizTimer").textContent = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+      }
+    }, 1000);
+  </script>
+</body>
+</html>
