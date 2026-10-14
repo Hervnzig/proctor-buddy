@@ -12,6 +12,7 @@ import "./fixed-topbar.css";
 import "./workspace-pages.css";
 import "./theme-fixes.css";
 import "./theme-accessibility.css";
+import "./monitoring-wall.css";
 
 createRoot(document.getElementById("root")).render(
   <React.StrictMode>

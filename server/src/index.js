@@ -175,10 +175,23 @@ app.post("/api/sessions/:id/students/:studentId/precheck", (request, response) =
     response.status(400).json({ error: "background-scan video must be under 3.5 MB" });
     return;
   }
+  const precheckShots = Array.isArray(summary?.precheckShots)
+    ? summary.precheckShots
+        .filter((shot) => shot && typeof shot.dataUrl === "string" && /^data:image\/(jpeg|png|webp);base64,/.test(shot.dataUrl) && shot.confirmed)
+        .map((shot) => ({
+          side: String(shot.side || "").slice(0, 24),
+          label: String(shot.label || shot.side || "").slice(0, 48),
+          dataUrl: shot.dataUrl,
+          cues: shot.cues && typeof shot.cues === "object" ? shot.cues : null,
+          confirmed: true,
+          capturedAt: typeof shot.capturedAt === "string" ? shot.capturedAt : null
+        }))
+    : [];
+  const { precheckShots: _ignoredShots, ...summaryWithoutShots } = summary || {};
   const student = updateStudent(request.params.id, request.params.studentId, {
-    precheckShots: [],
+    precheckShots,
     precheckVideo: { dataUrl: video.dataUrl, mimeType: video.mimeType, submittedAt: new Date().toISOString() },
-    precheckSummary: summary || {},
+    precheckSummary: summaryWithoutShots,
     reviewMessage: "",
     status: "awaiting-review"
   });

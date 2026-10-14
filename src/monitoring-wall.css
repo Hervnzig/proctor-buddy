@@ -1,0 +1,75 @@
+/* Live monitoring wall: multi-student focus, webcam + screen per student. */
+.monitoring-wall-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.monitoring-wall-actions .button-secondary { height: 29px; font-size: 9px; padding: 0 10px; display: inline-flex; align-items: center; gap: 5px; }
+
+.monitoring-wall-picker { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.monitoring-wall-chip {
+  display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 10px;
+  border-radius: 999px; border: 1px solid #dbe4dc; background: #fff; color: #4b5d51;
+  font: 600 9px Manrope, Inter, sans-serif; cursor: pointer;
+  transition: background .18s ease, border-color .18s ease, color .18s ease, transform .18s ease;
+}
+.monitoring-wall-chip:hover { border-color: #9fc4a9; transform: translateY(-1px); }
+.monitoring-wall-chip.on { background: #1f6b43; border-color: #1f6b43; color: #fff; box-shadow: 0 4px 12px rgba(31, 107, 67, .25); }
+
+.monitoring-wall-grid { transition: grid-template-columns .25s ease; }
+.monitoring-wall-grid.focus-mode.focus-count-1 { grid-template-columns: 1fr; }
+.monitoring-wall-grid.focus-mode.focus-count-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.monitoring-wall-grid.focus-mode.focus-count-3 { grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); }
+
+.monitoring-wall-tile { transition: box-shadow .2s ease, border-color .2s ease; animation: wall-tile-in .25s ease; }
+.monitoring-wall-tile:hover { box-shadow: 0 6px 18px rgba(18, 33, 24, .08); }
+.monitoring-wall-tile.is-hidden { display: none; }
+.monitoring-wall-tile.is-away { border-color: #e0786a; box-shadow: 0 0 0 2px rgba(224, 120, 106, .25); }
+@keyframes wall-tile-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+.monitoring-wall-tile-badges { display: flex; align-items: center; gap: 6px; }
+.monitoring-wall-tile-head .button-secondary { display: inline-flex; align-items: center; gap: 4px; }
+.monitoring-wall-tile-head .button-secondary.is-active { background: #eaf4ed; border-color: #a9cdb4; color: #1f6b43; }
+.monitoring-wall-badge {
+  display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 7px;
+  border-radius: 999px; font: 700 8px Manrope, Inter, sans-serif; letter-spacing: .02em;
+}
+.monitoring-wall-badge.live { background: #e7f5ec; color: #1f6b43; }
+.monitoring-wall-badge.live i { width: 6px; height: 6px; border-radius: 50%; background: #29a35a; animation: wall-pulse 1.4s ease-in-out infinite; }
+.monitoring-wall-badge.away { background: #fde9e5; color: #b5412f; animation: wall-pulse 1s ease-in-out infinite; }
+@keyframes wall-pulse { 50% { opacity: .45; } }
+
+/* Grid view: screen fills the tile, webcam floats as picture-in-picture. */
+.monitoring-wall-media { position: relative; background: #17211b; }
+.monitoring-wall-media .monitoring-wall-video { position: relative; overflow: hidden; }
+.monitoring-wall-overlay { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 6px; color: #a9b8ae; font-size: 9px; }
+.monitoring-wall-label {
+  position: absolute; left: 6px; bottom: 6px; display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 6px; border-radius: 5px; background: rgba(10, 16, 12, .65); color: #e4efe7;
+  font: 600 8px Manrope, Inter, sans-serif; pointer-events: none;
+}
+.monitoring-wall-camera {
+  position: absolute !important; right: 8px; bottom: 8px; width: 30%; min-width: 84px; aspect-ratio: 4 / 3; height: auto !important;
+  border-radius: 7px; border: 1px solid rgba(255, 255, 255, .18); box-shadow: 0 6px 16px rgba(0, 0, 0, .35); background: #0f1712 !important;
+}
+.monitoring-wall-camera video { width: 100%; height: 100%; object-fit: cover; }
+.monitoring-wall-camera .monitoring-wall-overlay svg { width: 14px; height: 14px; }
+
+/* Focus view: screen and webcam side by side, larger. */
+.monitoring-wall-tile.focused .monitoring-wall-media {
+  display: grid; grid-template-columns: minmax(0, 2.2fr) minmax(0, 1fr); gap: 6px; padding: 6px; height: 360px;
+}
+.monitoring-wall-grid.focus-count-1 .monitoring-wall-tile.focused .monitoring-wall-media { height: 460px; }
+.monitoring-wall-tile.focused .monitoring-wall-video { height: 100% !important; border-radius: 6px; }
+.monitoring-wall-tile.focused .monitoring-wall-camera {
+  position: relative !important; right: auto; bottom: auto; width: auto; min-width: 0; aspect-ratio: auto; box-shadow: none;
+}
+
+.theme-dark .monitoring-wall-chip { background: #1a261f; border-color: #2f4036; color: #c9d8ce; }
+.theme-dark .monitoring-wall-chip.on { background: #2f8a57; border-color: #2f8a57; color: #fff; }
+.theme-dark .monitoring-wall-tile-head .button-secondary.is-active { background: #21382a; border-color: #3c6a4c; color: #bfe6cb; }
+.theme-dark .monitoring-wall-badge.live { background: #1d3527; color: #9fe0b5; }
+.theme-dark .monitoring-wall-badge.away { background: #3c211e; color: #ffb3a6; }
+
+@media (max-width: 760px) {
+  .monitoring-wall-grid.focus-mode.focus-count-2,
+  .monitoring-wall-grid.focus-mode.focus-count-3 { grid-template-columns: 1fr; }
+  .monitoring-wall-tile.focused .monitoring-wall-media { grid-template-columns: 1fr; height: auto; }
+  .monitoring-wall-tile.focused .monitoring-wall-video { height: 220px !important; }
+}
